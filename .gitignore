@@ -1,0 +1,5 @@
+vcpkg_installed/
+hudfix/
+Release/
+Debug/
+*.user
