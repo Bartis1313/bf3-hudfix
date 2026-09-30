@@ -26,6 +26,8 @@ The options in the **Gameplay** tab:
   - kill log
   - nametags
   - ammo and health (including vehicle health and passenger list)
+  - chat
+- **Per-element opacity** (10% - 100%, 10% steps) for the same elements, except the minimap (the game has its own option)
 - Bottom-left widgets keep their place next to the resized minimap.
 - The glyph cache is enlarged (1024 -> 2048) so scaled fonts stay sharp.
 

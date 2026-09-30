@@ -35,7 +35,20 @@ namespace hudfix
             "HudFixCrosshair",
             "HudFixKillLog",
             "HudFixNametags",
-            "HudFixAmmoHealth"
+            "HudFixAmmoHealth",
+            "HudFixChat"
+        };
+        constexpr const char* OPACITY_KEYS[ElementCount] =
+        {
+            nullptr, // the game's own minimap transparency option
+            "HudFixMinimapIconsOpacity",
+            "HudFixSquadListOpacity",
+            "HudFixObjectivesOpacity",
+            "HudFixCrosshairOpacity",
+            "HudFixKillLogOpacity",
+            "HudFixNametagsOpacity",
+            "HudFixAmmoHealthOpacity",
+            "HudFixChatOpacity"
         };
 
         struct AssetGroup
@@ -57,6 +70,7 @@ namespace hudfix
             { "UI/Assets/Health", { AmmoHealth, AmmoHealth } },
             { "UI/Assets/VehicleHealth", { AmmoHealth, AmmoHealth } },
             { "UI/Assets/PassangerList", { AmmoHealth, AmmoHealth } },
+            { "UI/Assets/ChatLog", { Chat, Minimap } },
         };
 
         Settings g_settings;
@@ -99,7 +113,11 @@ namespace hudfix
                 g_settings.scale = 100;
 
             for (int i = 0; i < ElementCount; ++i)
+            {
                 sync(ELEMENT_KEYS[i], g_settings.element[i]);
+                if (OPACITY_KEYS[i])
+                    sync(OPACITY_KEYS[i], g_settings.opacity[i]);
+            }
         }
 
         // options menu revert / restore defaults copy a whole bank over the live group
@@ -150,7 +168,11 @@ namespace hudfix
         set(group, SCALE_KEY, static_cast<float>(g_settings.scale));
 
         for (int i = 0; i < ElementCount; ++i)
+        {
             set(group, ELEMENT_KEYS[i], static_cast<float>(g_settings.element[i]));
+            if (OPACITY_KEYS[i])
+                set(group, OPACITY_KEYS[i], static_cast<float>(g_settings.opacity[i]));
+        }
 
         reinterpret_cast<GroupChangedFn>(OFF_ProfileOptions_groupChanged)(game, GAMEPLAY_GROUP);
     }
@@ -158,6 +180,11 @@ namespace hudfix
     float elementFactor(Element element)
     {
         return g_settings.element[element] / 100.0f;
+    }
+
+    float elementOpacity(Element element)
+    {
+        return g_settings.opacity[element] / 100.0f;
     }
 
     bool widgetGroup(const char* assetName, WidgetGroup& out)

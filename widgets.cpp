@@ -31,6 +31,7 @@ namespace hudfix
 
         constexpr unsigned int WIDGET_MANAGED = 0x40;
         constexpr unsigned short VARS_TRANSFORM = 0x1 | 0x2 | 0x8 | 0x10;
+        constexpr unsigned short VARS_ALPHA = 0x20; // SetDisplayInfo sub_12F0240: m_alpha in percent
 
         enum WidgetType
         {
@@ -230,6 +231,7 @@ namespace hudfix
             const fb::WidgetNode* widget;
             std::string path;
             double k, layout;
+            double alpha;
             double ax, ay; // the aligned screen corner in the widget's parent space
         };
 
@@ -265,7 +267,8 @@ namespace hudfix
                     WidgetContext context{ movie, screen, widget };
                     context.k = elementFactor(group.element);
                     context.layout = elementFactor(group.layout);
-                    if (context.k == 1.0 && context.layout == 1.0)
+                    context.alpha = elementOpacity(group.element);
+                    if (context.k == 1.0 && context.layout == 1.0 && context.alpha == 1.0)
                         continue;
 
                     if (!haveVisible)
@@ -335,7 +338,8 @@ namespace hudfix
                 info.m_y = ty + (info.m_y - cy) * c.k;
                 info.m_xScale *= c.k;
                 info.m_yScale *= c.k;
-                info.m_varsSet = VARS_TRANSFORM;
+                info.m_alpha *= c.alpha; // on top of the widget's own fades
+                info.m_varsSet = VARS_TRANSFORM | VARS_ALPHA;
                 scaled->clip.write(&info);
                 g_scaled.push_back(std::move(scaled));
             });
@@ -345,7 +349,7 @@ namespace hudfix
         {
             for (auto& scaled : g_scaled)
             {
-                scaled->base.m_varsSet = VARS_TRANSFORM;
+                scaled->base.m_varsSet = VARS_TRANSFORM | VARS_ALPHA;
                 scaled->clip.write(&scaled->base);
             }
             g_scaled.clear();

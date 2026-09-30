@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <vector>
 
 namespace hudfix
 {
@@ -13,23 +12,16 @@ namespace hudfix
         constexpr float SCLAEFORM_WIDTH = 1280.0f;
         constexpr float SCLAEFORM_HEIGHT = 720.0f;
 
-        using RefCountFn = void(__thiscall*)(void* object);
-        using SetTextureConfigFn = void(__thiscall*)(fb::GFxFontCacheManager* cache, const fb::GFxFontCacheTextureConfig* config);
-        using InitTexturesFn = void(__thiscall*)(fb::GFxFontCacheManager* cache, void* renderer);
-
         using RenderJobFn = int(__cdecl*)(fb::UISystem* system, float dt);
         using OnViewResizedFn = void(__thiscall*)(fb::UIMovieInstance* movie, unsigned int x, unsigned int y, unsigned int w, unsigned int h);
         using UpdatePositionFn = bool(__thiscall*)(void* icon, float dt, fb::Vec2* pos, bool toMovie);
         using GetScreenCoordinateFn = bool(__thiscall*)(void* comp, float dt, void* icon, fb::UI3dPosInfo* out);
         using DrawPassFn = void(__thiscall*)(void* comp, float dt);
         using MinimapScaleFn = void(__thiscall*)(fb::UIMinimap* minimap);
+        using MinimapRenderFn = int(__thiscall*)(fb::UIMinimap* minimap, const void* transform, int a3, int a4);
         using DrawFromAtlasFn = fb::Vec2*(__thiscall*)(void* hud, fb::Vec2* outSize, const fb::UIHudIconDrawParams* params, float time, float pad, float rotation);
-        using DrawTextFn = fb::GRectF*(__thiscall*)(void* hud, fb::GRectF* out, const fb::Vec2* pos, const char* text, float size, float glow, int halign, int valign, char snap);
-        using AllocateGlyphFn = void*(__thiscall*)(void* queue, const void* param, unsigned int w, unsigned int h);
-
-        // 2048 is what the UIScaleformRenderer ctor's unused branch picks, see updateGlyphCache
-        constexpr uint32_t GLYPH_CACHE_SIZE = 2048;
-        constexpr uint32_t GLYPH_CACHE_MAX_SIZE = 4096; // largest possible texture
+        using DrawTextFn = fb::GRectF*(__thiscall*)(fb::UIHud* hud, fb::GRectF* out, const fb::Vec2* pos, const char* text, float size, float glow, int halign, int valign, char snap);
+        using ScaleformRendererCtorFn = void*(__thiscall*)(void* renderer, void* a2, void* a3, bool smallGlyphCache);
 
         RenderJobFn oRenderJob = nullptr;
         OnViewResizedFn oOnViewResized = nullptr;
@@ -38,23 +30,15 @@ namespace hudfix
         DrawPassFn oDraw3dIcons = nullptr;
         DrawPassFn oKillfeed = nullptr;
         MinimapScaleFn oMinimapScale = nullptr;
+        MinimapRenderFn oMinimapRender = nullptr;
         DrawFromAtlasFn oDrawFromAtlas = nullptr;
         DrawTextFn oDrawText = nullptr;
-        AllocateGlyphFn oAllocateGlyph = nullptr;
+        ScaleformRendererCtorFn oScaleformRendererCtor = nullptr;
 
-        enum class Scope { None, Icons, Killfeed };
+        enum class Scope { None, Icons, Killfeed, Minimap };
 
         // this UI frame's scale, set before the engine's renderJob
         float g_scale = 1.0f;
-        uint32_t g_glyphCacheSize = 0; // size we applied, 0 until the UI engine exists
-        bool g_glyphCacheFull = false; // a glyph didn't fit since the last renderJob
-
-        struct RetiredTexture
-        {
-            fb::GTexture* texture;
-            int frames = 8;  // queued UI render state holds raw glyph ITexture* (applyFillTexture)
-        };
-        std::vector<RetiredTexture> g_retired;
 
         thread_local Scope t_scope = Scope::None;
         // screen = anchor + (origin - anchor) * global + (p - origin) * scale: the element's origin keeps its
@@ -64,6 +48,7 @@ namespace hudfix
         thread_local fb::Vec2 t_origin{ };
         thread_local float t_global = 1.0f;
         thread_local float t_scale = 1.0f; // global scale * the scope's element factor
+        thread_local float t_alpha = 1.0f; // the scope's element opacity
 
         const fb::ScreenViewport* viewport()
         {
@@ -89,74 +74,19 @@ namespace hudfix
             return t_anchor + (t_origin - t_anchor) * t_global + (p - t_origin) * t_scale;
         }
 
-        void releaseRetired()
+        // fb::Color32
+        unsigned int fade(unsigned int color)
         {
-            for (auto it = g_retired.begin(); it != g_retired.end();)
-            {
-                if (--it->frames > 0)
-                {
-                    ++it;
-                    continue;
-                }
-                reinterpret_cast<RefCountFn>(OFF_GRefCount_release)(it->texture);
-                it = g_retired.erase(it);
-            }
+            const unsigned int alpha = static_cast<unsigned int>((color >> 24) * t_alpha + 0.5f);
+            return (color & 0x00FFFFFF) | (alpha << 24);
         }
 
-        // UIScaleformRenderer ctor sub_1770370 picks 1024 or 2048 on its last arg, but UIEngine create sub_1770A80 always passes 1, so a 1024x1024 cache
-        void updateGlyphCache()
+        // the ctor picks a 1024 or 2048 glyph cache on its last arg, UIEngine create sub_1770A80 always passes 1
+        // resizing the live cache instead re-rasterizes glyphs that queued text still points at, which flickers
+        void* __fastcall hkScaleformRendererCtor(void* _this, void*, void* a2, void* a3, bool)
         {
-            uint32_t size = g_glyphCacheSize ? g_glyphCacheSize : GLYPH_CACHE_SIZE;
-            if (g_glyphCacheFull && g_glyphCacheSize && size < GLYPH_CACHE_MAX_SIZE)
-                size *= 2;
-            g_glyphCacheFull = false;
-
-            // no reason to tank it
-            if (size == g_glyphCacheSize)
-                return;
-
-            fb::UIEngine* engine = fb::UIEngine::GetInstance();
-            if (!engine || !engine->m_loader || !engine->m_loader->m_stateBag || !engine->m_scaleformRenderer)
-                return;
-
-            // 18 is FONT
-            fb::GFxFontCacheManager* cache = static_cast<fb::GFxFontCacheManager*>(engine->m_loader->m_stateBag->getState(18));
-            if (!cache)
-                return;
-
-            g_glyphCacheSize = size;
-
-            // re-rasterizes every glyph on the next frames
-            if (cache->m_textureConfig.m_textureWidth < size)
-            {
-                fb::GFxFontCacheManagerImpl* impl = cache->m_impl;
-                for (unsigned int i = 0; i < impl->m_cacheMaxNumTextures && i < 32; ++i)
-                {
-                    fb::GTexture* texture = impl->m_cacheTextures[i].m_texture;
-                    if (!texture)
-                        continue;
-                    reinterpret_cast<RefCountFn>(OFF_GRefCount_addRef)(texture);
-                    g_retired.push_back({ texture });
-                }
-
-                fb::GFxFontCacheTextureConfig config = cache->m_textureConfig;
-                config.m_textureWidth = size;
-                config.m_textureHeight = size;
-                reinterpret_cast<SetTextureConfigFn>(OFF_GFxFontCacheManager_setTextureConfig)(cache, &config);
-                reinterpret_cast<InitTexturesFn>(OFF_GFxFontCacheManager_initTextures)(cache, engine->m_scaleformRenderer);
-                log("glyph cache {}x{}", size, size);
-            }
-
-            reinterpret_cast<RefCountFn>(OFF_GRefCount_release)(cache);
-        }
-
-        // null when every slot holds a glyph locked by the last frames' text, the caller then skips the glyph
-        void* __fastcall hkAllocateGlyph(void* _this, void*, const void* param, unsigned int w, unsigned int h)
-        {
-            void* glyph = oAllocateGlyph(_this, param, w, h);
-            if (!glyph)
-                g_glyphCacheFull = true;
-            return glyph;
+            log("glyph cache 2048x2048");
+            return oScaleformRendererCtor(_this, a2, a3, false);
         }
 
         struct ScopeGuard
@@ -167,9 +97,10 @@ namespace hudfix
             fb::Vec2 prevOrigin;
             float prevGlobal;
             float prevScale;
+            float prevAlpha;
 
-            ScopeGuard(Scope s, bool a, const fb::Vec2& at, const fb::Vec2& origin, float factor)
-                : prevScope(t_scope), prevAnchored(t_anchored), prevAnchor(t_anchor), prevOrigin(t_origin), prevGlobal(t_global), prevScale(t_scale)
+            ScopeGuard(Scope s, bool a, const fb::Vec2& at, const fb::Vec2& origin, float factor, float alpha)
+                : prevScope(t_scope), prevAnchored(t_anchored), prevAnchor(t_anchor), prevOrigin(t_origin), prevGlobal(t_global), prevScale(t_scale), prevAlpha(t_alpha)
             {
                 t_scope = s;
                 t_anchored = a;
@@ -177,6 +108,7 @@ namespace hudfix
                 t_origin = origin;
                 t_global = g_scale;
                 t_scale = g_scale * factor;
+                t_alpha = alpha;
             }
 
             ~ScopeGuard()
@@ -187,6 +119,7 @@ namespace hudfix
                 t_origin = prevOrigin;
                 t_global = prevGlobal;
                 t_scale = prevScale;
+                t_alpha = prevAlpha;
             }
         };
 
@@ -198,9 +131,6 @@ namespace hudfix
                 g_scale = scale;
                 system->m_backbufferHeight = 0; // the original re-runs onFramebufferResized then root movie onViewResized
             }
-
-            releaseRetired();
-            updateGlyphCache();
 
             return oRenderJob(system, dt);
         }
@@ -267,7 +197,7 @@ namespace hudfix
 
         void __fastcall hkDraw3dIcons(void* _this, void*, float dt)
         {
-            ScopeGuard scope(Scope::Icons, false, fb::Vec2{ }, fb::Vec2{ }, elementFactor(Nametags));
+            ScopeGuard scope(Scope::Icons, false, fb::Vec2{ }, fb::Vec2{ }, elementFactor(Nametags), elementOpacity(Nametags));
             oDraw3dIcons(_this, dt);
         }
 
@@ -277,7 +207,7 @@ namespace hudfix
             const auto* vp = viewport();
             const fb::Vec2 anchor = vp ? fb::vec2(std::floor(vp->m_width * 0.95f) + vp->m_x, 0.0f) : fb::Vec2{ };
             const float top = vp ? 100.0f * (std::min)(vp->m_width / SCLAEFORM_WIDTH, 1.0f) : 0.0f;
-            ScopeGuard scope(Scope::Killfeed, vp != nullptr, anchor, fb::vec2(anchor.m_x, top), elementFactor(KillLog));
+            ScopeGuard scope(Scope::Killfeed, vp != nullptr, anchor, fb::vec2(anchor.m_x, top), elementFactor(KillLog), elementOpacity(KillLog));
             oKillfeed(_this, dt);
         }
 
@@ -288,29 +218,53 @@ namespace hudfix
             _this->m_resolutionScale = base * elementFactor(MinimapIcons);
         }
 
+        // only fades, the icons' size is m_resolutionScale
+        int __fastcall hkMinimapRender(fb::UIMinimap* _this, void*, const void* transform, int a3, int a4)
+        {
+            ScopeGuard scope(Scope::Minimap, false, fb::Vec2{ }, fb::Vec2{ }, 1.0f, elementOpacity(MinimapIcons));
+            return oMinimapRender(_this, transform, a3, a4);
+        }
+
         // callers lay out in 720p units around the anchor
         // positions and sizes are magnified, the returned size is not
         fb::Vec2* __fastcall hkDrawFromAtlas(void* _this, void*, fb::Vec2* outSize, const fb::UIHudIconDrawParams* params, float time, float pad, float rotation)
         {
-            if (!anchored())
+            const bool scale = anchored();
+            if (!scale && t_alpha == 1.0f)
                 return oDrawFromAtlas(_this, outSize, params, time, pad, rotation);
 
-            fb::UIHudIconDrawParams scaled = *params;
-            scaled.m_pos = toScreen(params->m_pos);
-            scaled.m_scale = params->m_scale * t_scale;
-            fb::Vec2* result = oDrawFromAtlas(_this, outSize, &scaled, time, pad, rotation);
-            *outSize = *outSize / t_scale;
+            fb::UIHudIconDrawParams changed = *params;
+            if (scale)
+            {
+                changed.m_pos = toScreen(params->m_pos);
+                changed.m_scale = params->m_scale * t_scale;
+            }
+            changed.m_color = fade(params->m_color);
+            fb::Vec2* result = oDrawFromAtlas(_this, outSize, &changed, time, pad, rotation);
+            if (scale)
+                *outSize = *outSize / t_scale;
             return result;
         }
 
         // out is the text's local rect at the base size (callers multiply it by their own scale), so it stays as is
-        fb::GRectF* __fastcall hkDrawText(void* _this, void*, fb::GRectF* out, const fb::Vec2* pos, const char* text, float size, float glow, int halign, int valign, char snap)
+        // the text cache matches rgb only, so a faded alpha updates the cached line instead of adding one
+        fb::GRectF* __fastcall hkDrawText(fb::UIHud* _this, void*, fb::GRectF* out, const fb::Vec2* pos, const char* text, float size, float glow, int halign, int valign, char snap)
         {
-            if (!anchored())
+            const bool scale = anchored();
+            if (!scale && t_alpha == 1.0f)
                 return oDrawText(_this, out, pos, text, size, glow, halign, valign, snap);
 
-            const fb::Vec2 at = toScreen(*pos);
-            return oDrawText(_this, out, &at, text, size * t_scale, glow, halign, valign, snap);
+            const float textAlpha = _this->m_textColor[3];
+            const float glowAlpha = _this->m_glowColor[3];
+            _this->m_textColor[3] = textAlpha * t_alpha;
+            _this->m_glowColor[3] = glowAlpha * t_alpha;
+
+            const fb::Vec2 at = scale ? toScreen(*pos) : *pos;
+            fb::GRectF* result = oDrawText(_this, out, &at, text, scale ? size * t_scale : size, glow, halign, valign, snap);
+
+            _this->m_textColor[3] = textAlpha;
+            _this->m_glowColor[3] = glowAlpha;
+            return result;
         }
     }
 
@@ -337,8 +291,9 @@ namespace hudfix
         hook(OFF_UIHud_draw3dIcons, hkDraw3dIcons, &oDraw3dIcons);
         hook(OFF_UIKillfeed_draw, hkKillfeed, &oKillfeed);
         hook(OFF_UIMinimap_updateScale, hkMinimapScale, &oMinimapScale);
+        hook(OFF_UIMinimap_render, hkMinimapRender, &oMinimapRender);
         hook(OFF_UIHud_drawFromAtlas, hkDrawFromAtlas, &oDrawFromAtlas);
         hook(OFF_UIHud_drawText, hkDrawText, &oDrawText);
-        hook(OFF_GFxGlyphSlotQueue_allocateGlyph, hkAllocateGlyph, &oAllocateGlyph);
+        hook(OFF_UIScaleformRenderer_ctor, hkScaleformRendererCtor, &oScaleformRendererCtor);
     }
 }

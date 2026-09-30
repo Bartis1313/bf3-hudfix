@@ -18,6 +18,7 @@ namespace hudfix
         KillLog,
         Nametags,
         AmmoHealth,
+        Chat,
         ElementCount
     };
 
@@ -25,7 +26,8 @@ namespace hudfix
     {
         bool autoScale = true; // s = min(w/1280, h/720)
         int scale = 100; // percent, used when autoScale is off
-        int element[ElementCount] = { 100, 100, 100, 100, 100, 100, 100, 100 };
+        int element[ElementCount] = { 100, 100, 100, 100, 100, 100, 100, 100, 100 };
+        int opacity[ElementCount] = { 100, 100, 100, 100, 100, 100, 100, 100, 100 };
     };
 
     // UI job thread
@@ -34,6 +36,7 @@ namespace hudfix
     void saveSettings();
 
     float elementFactor(Element element);
+    float elementOpacity(Element element);
 
     struct WidgetGroup
     {

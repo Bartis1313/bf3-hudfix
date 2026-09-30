@@ -4,7 +4,6 @@
 
 // hud scale
 #define OFF_g_uiSystem 0x02385CE0 // IUISystem::getInstance sub_FF6120
-#define OFF_g_uiEngine 0x023B4DF0 // UIEngine ctor sub_17696C0
 #define OFF_UISystem_renderJob 0x0100BC40 // cdecl (UISystem*, dt): viewport vs backbuffer rect -> onFramebufferResized sub_1005E10, then UIEngine::update
 #define OFF_UIMovieInstance_onViewResized 0x01766A80 // thiscall (x, y, w, h): NoScale at >= 1280x720, ShowAll below
 #define OFF_UI3dIcon_updatePosition 0x0094FAF0 // thiscall (dt, Vec2*, toMovie): toMovie pixel -> movie conversion only below 720p
@@ -12,13 +11,10 @@
 #define OFF_UIHud_draw3dIcons 0x00927A30 // thiscall (dt): nametags, vehicles, markers, laser tags - every UIHud draw follows a getScreenCoordinate
 #define OFF_UIKillfeed_draw 0x0092D630 // thiscall (dt): right-aligned at floor(0.95 * w) + x, layout from y = 100
 #define OFF_UIMinimap_updateScale 0x009366E0 // thiscall (): m_resolutionScale = min(1, w/1280, h/720)
+#define OFF_UIMinimap_render 0x0094AB90 // thiscall (const Mat4*, a3, a4): icons (drawFromAtlas) and labels (drawText sub_940E00) into the minimap texture
 #define OFF_UIHud_drawFromAtlas 0x0077ACB0 // thiscall (Vec2* outSize, UIHudIconDrawParams*, time, pad, rotation)
 #define OFF_UIHud_drawText 0x007849B0 // thiscall (GRectF* out, Vec2* pos, text, size, glow, halign, valign, snap): out = local text rect at the base size
-#define OFF_GFxFontCacheManager_setTextureConfig 0x01358A30 // thiscall (GFxFontCacheTextureConfig*): releases the glyph textures
-#define OFF_GFxFontCacheManager_initTextures 0x0135B840 // thiscall (GRenderer*)
-#define OFF_GFxGlyphSlotQueue_allocateGlyph 0x0135E790 // thiscall (const GFxGlyphParam*, w, h) -> GFxGlyphNode*, null = cache full of locked glyphs; only caller rasterizeAndPack sub_135E860
-#define OFF_GRefCount_addRef 0x012E7E60 // thiscall, non-atomic
-#define OFF_GRefCount_release 0x012E7E70 // thiscall, non-atomic, deletes at 0
+#define OFF_UIScaleformRenderer_ctor 0x01770370 // thiscall (a2, a3, bool smallGlyphCache): glyph cache 1024 if set, else 2048; only caller UIEngine create sub_1770A80, whose init sub_1768640 hands it to GFxFontCacheManager::SetTextureConfig
 #define OFF_UIScreenManager_initializeScreen 0x0102AAD0 // thiscall (const char* screen): the screen's WidgetNodes -> "<screen>.instance1.initializeScreen", which only sets up clips its movie already has
 #define OFF_GFxMovieRoot_advance 0x01429DF0 // thiscall (dt, catchUp) -> float, vtable 0x2201DA8 slot 37; ActionScript runs here, Invoke is safe after it
 #define OFF_GFxMovieRoot_display 0x014202F0 // thiscall (), vtable 0x2201DA8 slot 38; renderJob sub_176CF60 advances every movie, then displays them
@@ -195,78 +191,13 @@ namespace fb
 		}
 	};
 
-	class GFxStateBag
+	// drawText sub_7849B0 packs both colors to bytes per call, alpha into the top byte
+	class UIHud
 	{
 	public:
-		VFUNC(void*, getState, 3, (int type), (this, type)); // AddRef'd, GFxState::State_FontCacheManager = 18
-	};
-
-	class GFxLoaderImpl
-	{
-	public:
-		char _0x0000[0x38];
-		GFxStateBag* m_stateBag; //0x0038
-	};
-
-	// ctor sub_17696C0, create sub_1770A80
-	class UIEngine
-	{
-	public:
-		char _0x0000[0x20];
-		GFxLoaderImpl* m_loader; //0x0020
-		char _0x0024[0x1C];
-		void* m_scaleformRenderer; //0x0040 UIScaleformRenderer, the GRenderer the glyph cache creates textures on
-
-		static UIEngine* GetInstance()
-		{
-			return *(UIEngine**)OFF_g_uiEngine;
-		}
-	};
-
-	class GTexture
-	{
-	public:
-		void* m_vtable; //0x0000
-		int m_refCount; //0x0004 GRefCountNTSImpl
-	};
-
-	// GFxGlyphRasterCache::InitTextures sub_13378C0
-	struct GFxGlyphTexture
-	{
-		GTexture* m_texture; //0x0000
-		char _0x0004[0x10];
-	};//Size=0x0014
-
-	struct GFxFontCacheTextureConfig
-	{
-		unsigned int m_textureWidth; //0x0000
-		unsigned int m_textureHeight; //0x0004
-		unsigned int m_maxNumTextures; //0x0008
-		unsigned int m_maxSlotHeight; //0x000C
-		unsigned int m_slotPadding; //0x0010
-		unsigned int m_texUpdWidth; //0x0014
-		unsigned int m_texUpdHeight; //0x0018
-	};//Size=0x001C
-
-	class GFxFontCacheManagerImpl
-	{
-	public:
-		char _0x0000[0x4C];
-		unsigned int m_cacheTextureWidth; //0x004C GFxGlyphRasterCache
-		unsigned int m_cacheTextureHeight; //0x0050
-		unsigned int m_cacheMaxNumTextures; //0x0054
-		char _0x0058[0x2C];
-		GFxGlyphTexture m_cacheTextures[32]; //0x0084
-	};
-
-	// SetTextureConfig sub_1358A30, InitTextures sub_135B840
-	class GFxFontCacheManager
-	{
-	public:
-		char _0x0000[0xC];
-		GFxFontCacheTextureConfig m_textureConfig; //0x000C
-		char _0x0028[0x20];
-		GFxFontCacheManagerImpl* m_impl; //0x0048
+		char _0x0000[0x10];
+		float m_textColor[4]; //0x0010 rgba
+		float m_glowColor[4]; //0x0020 rgba
 	};
 
 	// UIHud::drawFromAtlas sub_77ACB0 params
@@ -278,7 +209,7 @@ namespace fb
 		int m_icon; //0x0018
 		int m_state; //0x001C
 		float m_scale; //0x0020
-		unsigned int m_color; //0x0024
+		unsigned int m_color; //0x0024 vertex color, alpha in the top byte
 	};//Size=0x0028
 
 	// UIDataValue: 1 container, 3 double, 4 int, 6 C string (not owned); flags low bits 1 container, 3 scalar

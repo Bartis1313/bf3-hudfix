@@ -36,7 +36,8 @@ namespace hudfix
         {
             Auto,
             Scale,
-            Element
+            Element,
+            Opacity
         };
 
         struct Row
@@ -48,19 +49,30 @@ namespace hudfix
             int key; // -1 = not special
         };
 
-        std::array<Row, 2 + ElementCount> g_rows
+        constexpr size_t ROW_COUNT = 2 + 2 * ElementCount - 1; // minimap opacity is the game's own option
+
+        std::array<Row, ROW_COUNT> g_rows
         {
         {
             { "HudFixAuto", "AUTO HUD SCALE", Kind::Auto, -1 },
             { "HudFixScale", "HUD SCALE", Kind::Scale, -1 },
             { "HudFixMinimap", "MINIMAP SIZE", Kind::Element, Minimap },
             { "HudFixMinimapIcons", "MINIMAP ICON SIZE", Kind::Element, MinimapIcons },
+            { "HudFixMinimapIconsOpacity", "MINIMAP ICON OPACITY", Kind::Opacity, MinimapIcons },
             { "HudFixSquadList", "SQUAD LIST SIZE", Kind::Element, SquadList },
+            { "HudFixSquadListOpacity", "SQUAD LIST OPACITY", Kind::Opacity, SquadList },
             { "HudFixObjectives", "TICKETS SIZE", Kind::Element, Objectives },
+            { "HudFixObjectivesOpacity", "TICKETS OPACITY", Kind::Opacity, Objectives },
             { "HudFixCrosshair", "CROSSHAIR SIZE", Kind::Element, Crosshair },
+            { "HudFixCrosshairOpacity", "CROSSHAIR OPACITY", Kind::Opacity, Crosshair },
             { "HudFixKillLog", "KILL LOG SIZE", Kind::Element, KillLog },
+            { "HudFixKillLogOpacity", "KILL LOG OPACITY", Kind::Opacity, KillLog },
             { "HudFixNametags", "NAMETAG SIZE", Kind::Element, Nametags },
+            { "HudFixNametagsOpacity", "NAMETAG OPACITY", Kind::Opacity, Nametags },
             { "HudFixAmmoHealth", "AMMO AND HEALTH SIZE", Kind::Element, AmmoHealth },
+            { "HudFixAmmoHealthOpacity", "AMMO AND HEALTH OPACITY", Kind::Opacity, AmmoHealth },
+            { "HudFixChat", "CHAT SIZE", Kind::Element, Chat },
+            { "HudFixChatOpacity", "CHAT OPACITY", Kind::Opacity, Chat },
         }
         };
 
@@ -68,6 +80,8 @@ namespace hudfix
         constexpr int ELEMENT_MIN = 50;
         constexpr int ELEMENT_MAX = 300;
         constexpr int ELEMENT_STEP = 10;
+        constexpr int OPACITY_MIN = 10;
+        constexpr int OPACITY_MAX = 100;
 
         // UIComponentManager::registerComponentDataKeys reads name +0x8, DataSources +0x10 (count at -4), vtable slot 2
         struct FakeComponentData
@@ -83,7 +97,7 @@ namespace hudfix
         {
             unsigned int unk;
             unsigned int count;
-            const char* names[2 + ElementCount];
+            const char* names[ROW_COUNT];
         };
 
         SourceArray g_sources{ };
@@ -144,6 +158,8 @@ namespace hudfix
                 return 2;
             case Kind::Scale:
                 return (std::max)(static_cast<int>(std::floor(autoScale() * 100.0f + 1e-3f)) - SCALE_MIN, 0) / ELEMENT_STEP + 1;
+            case Kind::Opacity:
+                return (OPACITY_MAX - OPACITY_MIN) / ELEMENT_STEP + 1;
             default:
                 return (ELEMENT_MAX - ELEMENT_MIN) / ELEMENT_STEP + 1;
             }
@@ -151,7 +167,15 @@ namespace hudfix
 
         int percentOfItem(const Row& row, int index)
         {
-            return (row.kind == Kind::Scale ? SCALE_MIN : ELEMENT_MIN) + index * ELEMENT_STEP;
+            switch (row.kind)
+            {
+            case Kind::Scale:
+                return SCALE_MIN + index * ELEMENT_STEP;
+            case Kind::Opacity:
+                return OPACITY_MIN + index * ELEMENT_STEP;
+            default:
+                return ELEMENT_MIN + index * ELEMENT_STEP;
+            }
         }
 
         int itemOfSetting(const Row& row)
@@ -162,6 +186,8 @@ namespace hudfix
                 return settings().autoScale ? 1 : 0;
             case Kind::Scale:
                 return std::clamp((settings().scale - SCALE_MIN + ELEMENT_STEP / 2) / ELEMENT_STEP, 0, itemCount(row) - 1);
+            case Kind::Opacity:
+                return std::clamp((settings().opacity[row.element] - OPACITY_MIN + ELEMENT_STEP / 2) / ELEMENT_STEP, 0, itemCount(row) - 1);
             default:
                 return std::clamp((settings().element[row.element] - ELEMENT_MIN + ELEMENT_STEP / 2) / ELEMENT_STEP, 0, itemCount(row) - 1);
             }
@@ -233,6 +259,9 @@ namespace hudfix
                 break;
             case Kind::Element:
                 settings().element[row.element] = percentOfItem(row, index);
+                break;
+            case Kind::Opacity:
+                settings().opacity[row.element] = percentOfItem(row, index);
                 break;
             }
             saveSettings();
