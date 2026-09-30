@@ -25,6 +25,11 @@ namespace hudfix
         using MinimapScaleFn = void(__thiscall*)(fb::UIMinimap* minimap);
         using DrawFromAtlasFn = fb::Vec2*(__thiscall*)(void* hud, fb::Vec2* outSize, const fb::UIHudIconDrawParams* params, float time, float pad, float rotation);
         using DrawTextFn = fb::GRectF*(__thiscall*)(void* hud, fb::GRectF* out, const fb::Vec2* pos, const char* text, float size, float glow, int halign, int valign, char snap);
+        using AllocateGlyphFn = void*(__thiscall*)(void* queue, const void* param, unsigned int w, unsigned int h);
+
+        // 2048 is what the UIScaleformRenderer ctor's unused branch picks, see updateGlyphCache
+        constexpr uint32_t GLYPH_CACHE_SIZE = 2048;
+        constexpr uint32_t GLYPH_CACHE_MAX_SIZE = 4096; // largest possible texture
 
         RenderJobFn oRenderJob = nullptr;
         OnViewResizedFn oOnViewResized = nullptr;
@@ -35,12 +40,14 @@ namespace hudfix
         MinimapScaleFn oMinimapScale = nullptr;
         DrawFromAtlasFn oDrawFromAtlas = nullptr;
         DrawTextFn oDrawText = nullptr;
+        AllocateGlyphFn oAllocateGlyph = nullptr;
 
         enum class Scope { None, Icons, Killfeed };
 
         // this UI frame's scale, set before the engine's renderJob
         float g_scale = 1.0f;
-        bool g_glyphCacheGrown = false;
+        uint32_t g_glyphCacheSize = 0; // size we applied, 0 until the UI engine exists
+        bool g_glyphCacheFull = false; // a glyph didn't fit since the last renderJob
 
         struct RetiredTexture
         {
@@ -96,13 +103,16 @@ namespace hudfix
             }
         }
 
-        void growGlyphCache()
+        // UIScaleformRenderer ctor sub_1770370 picks 1024 or 2048 on its last arg, but UIEngine create sub_1770A80 always passes 1, so a 1024x1024 cache
+        void updateGlyphCache()
         {
-            // original is 1024x1024
-            constexpr uint32_t glypphCacheSize = 1024 * 2;
+            uint32_t size = g_glyphCacheSize ? g_glyphCacheSize : GLYPH_CACHE_SIZE;
+            if (g_glyphCacheFull && g_glyphCacheSize && size < GLYPH_CACHE_MAX_SIZE)
+                size *= 2;
+            g_glyphCacheFull = false;
 
             // no reason to tank it
-            if (g_glyphCacheGrown)
+            if (size == g_glyphCacheSize)
                 return;
 
             fb::UIEngine* engine = fb::UIEngine::GetInstance();
@@ -114,9 +124,10 @@ namespace hudfix
             if (!cache)
                 return;
 
-            g_glyphCacheGrown = true;
+            g_glyphCacheSize = size;
 
-            if (cache->m_textureConfig.m_textureWidth < glypphCacheSize)
+            // re-rasterizes every glyph on the next frames
+            if (cache->m_textureConfig.m_textureWidth < size)
             {
                 fb::GFxFontCacheManagerImpl* impl = cache->m_impl;
                 for (unsigned int i = 0; i < impl->m_cacheMaxNumTextures && i < 32; ++i)
@@ -129,14 +140,23 @@ namespace hudfix
                 }
 
                 fb::GFxFontCacheTextureConfig config = cache->m_textureConfig;
-                config.m_textureWidth = glypphCacheSize;
-                config.m_textureHeight = glypphCacheSize;
+                config.m_textureWidth = size;
+                config.m_textureHeight = size;
                 reinterpret_cast<SetTextureConfigFn>(OFF_GFxFontCacheManager_setTextureConfig)(cache, &config);
                 reinterpret_cast<InitTexturesFn>(OFF_GFxFontCacheManager_initTextures)(cache, engine->m_scaleformRenderer);
-                log("glyph cache {}x{}", glypphCacheSize, glypphCacheSize);
+                log("glyph cache {}x{}", size, size);
             }
 
             reinterpret_cast<RefCountFn>(OFF_GRefCount_release)(cache);
+        }
+
+        // null when every slot holds a glyph locked by the last frames' text, the caller then skips the glyph
+        void* __fastcall hkAllocateGlyph(void* _this, void*, const void* param, unsigned int w, unsigned int h)
+        {
+            void* glyph = oAllocateGlyph(_this, param, w, h);
+            if (!glyph)
+                g_glyphCacheFull = true;
+            return glyph;
         }
 
         struct ScopeGuard
@@ -180,8 +200,7 @@ namespace hudfix
             }
 
             releaseRetired();
-            if (g_scale > 1.0f)
-                growGlyphCache();
+            updateGlyphCache();
 
             return oRenderJob(system, dt);
         }
@@ -320,5 +339,6 @@ namespace hudfix
         hook(OFF_UIMinimap_updateScale, hkMinimapScale, &oMinimapScale);
         hook(OFF_UIHud_drawFromAtlas, hkDrawFromAtlas, &oDrawFromAtlas);
         hook(OFF_UIHud_drawText, hkDrawText, &oDrawText);
+        hook(OFF_GFxGlyphSlotQueue_allocateGlyph, hkAllocateGlyph, &oAllocateGlyph);
     }
 }

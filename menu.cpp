@@ -436,6 +436,7 @@ namespace hudfix
         void __fastcall hkPartitionLoaded(fb::InternalDatabasePartition* _this, void*)
         {
             oPartitionLoaded(_this);
+            patchChatQueue(_this);
 
             if (!_this->m_name)
                 return;

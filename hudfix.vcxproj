@@ -83,6 +83,7 @@
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="menu.cpp" />
+    <ClCompile Include="perf.cpp" />
     <ClCompile Include="scale.cpp" />
     <ClCompile Include="settings.cpp" />
     <ClCompile Include="widgets.cpp" />

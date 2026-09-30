@@ -27,7 +27,14 @@ The options in the **Gameplay** tab:
   - nametags
   - ammo and health (including vehicle health and passenger list)
 - Bottom-left widgets keep their place next to the resized minimap.
-- The glyph cache is enlarged for scaled text so fonts stay sharp.
+- The glyph cache is enlarged (1024 -> 2048) so scaled fonts stay sharp.
+
+### Performance fixes
+
+- **FPS drops**: the game's performance overlay asks Windows for system memory stats (`GetPerformanceInfo`) on every
+  frame. This is mostly an issue on modern cpus. hudfix refreshes it once per second instead.
+- **Chatbox lag**: chat lines never expire, the chat keeps up to 200 of them, and every new line resends the whole
+  list to the UI. Once the chat fills up, each message stalls the game. hudfix caps the chat at 20 lines (credits [FlashHit](https://github.com/FlashHit)).
 
 All options live in UI **Gameplay** tab. They are saved in your game profile next
 to the rest of the gameplay settings (keys `HudFixAuto`, `HudFixScale`, `HudFixMinimap`, ...), so there is no extra

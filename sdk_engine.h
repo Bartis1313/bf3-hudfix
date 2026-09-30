@@ -7,6 +7,7 @@
 
 #define OFF_g_dxRenderer 0x023577D4
 #define OFF_InternalDatabasePartition_onPartitionLoaded 0x004D5790
+#define OFF_Environment_getMemoryInfo 0x004AAC10 // cdecl (unsigned* total, unsigned* available): psapi GetPerformanceInfo; PerfOverlay::update sub_66F4E0 (vtable 0x208EE74 slot 3) calls it every frame
 
 namespace vfunc
 {

@@ -25,6 +25,7 @@ namespace
         hudfix::installWidgetHooks();
         hudfix::installMenuHooks();
         hudfix::installSettingsHooks();
+        hudfix::installPerfHooks();
 
         const MH_STATUS status = MH_EnableHook(MH_ALL_HOOKS);
         hudfix::log("hooks: {}", MH_StatusToString(status));

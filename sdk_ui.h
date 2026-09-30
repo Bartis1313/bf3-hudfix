@@ -16,6 +16,7 @@
 #define OFF_UIHud_drawText 0x007849B0 // thiscall (GRectF* out, Vec2* pos, text, size, glow, halign, valign, snap): out = local text rect at the base size
 #define OFF_GFxFontCacheManager_setTextureConfig 0x01358A30 // thiscall (GFxFontCacheTextureConfig*): releases the glyph textures
 #define OFF_GFxFontCacheManager_initTextures 0x0135B840 // thiscall (GRenderer*)
+#define OFF_GFxGlyphSlotQueue_allocateGlyph 0x0135E790 // thiscall (const GFxGlyphParam*, w, h) -> GFxGlyphNode*, null = cache full of locked glyphs; only caller rasterizeAndPack sub_135E860
 #define OFF_GRefCount_addRef 0x012E7E60 // thiscall, non-atomic
 #define OFF_GRefCount_release 0x012E7E70 // thiscall, non-atomic, deletes at 0
 #define OFF_UIScreenManager_initializeScreen 0x0102AAD0 // thiscall (const char* screen): the screen's WidgetNodes -> "<screen>.instance1.initializeScreen", which only sets up clips its movie already has
@@ -320,5 +321,23 @@ namespace fb
 	public:
 		char _0x0000[0x380];
 		float m_resolutionScale; //0x0380 icon and label scale
+	};
+
+	// message expire is -1 always
+	struct MessageInfo
+	{
+		char* m_RowTypeName; //0x0000
+		uint32_t m_MessageQueueSize; //0x0004 rows kept on screen
+		float m_NormalMessageTime; //0x0008
+		float m_ShortMessageTime; //0x000C
+	};//Size=0x0010
+
+	// UIMessageComp reads it through getMessageInfoForType sub_92DB50: +0x20 for type 0 (chat), +0x20 + type * 0x10 up to 15
+	class UIMessageCompData : public DataContainer
+	{
+	public:
+		char _0x0008[0x14];
+		float m_ScoreAggregateTime; //0x001C
+		MessageInfo m_ChatMessageInfo; //0x0020
 	};
 }

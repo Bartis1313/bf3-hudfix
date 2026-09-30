@@ -64,4 +64,6 @@ namespace hudfix
     void installWidgetHooks();
     void installMenuHooks();
     void installSettingsHooks();
+    void installPerfHooks();
+    void patchChatQueue(fb::InternalDatabasePartition* partition);
 }
