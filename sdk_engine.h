@@ -8,6 +8,10 @@
 #define OFF_g_dxRenderer 0x023577D4
 #define OFF_InternalDatabasePartition_onPartitionLoaded 0x004D5790
 #define OFF_Environment_getMemoryInfo 0x004AAC10 // cdecl (unsigned* total, unsigned* available): psapi GetPerformanceInfo; PerfOverlay::update sub_66F4E0 (vtable 0x208EE74 slot 3) calls it every frame
+#define OFF_HealthModuleStateRevive_enter 0x007B00E0 // thiscall (): clientHealthModule revive state, vtable 0x20AF4E0 slot 25; reviveSoldier sub_7AB4C0, "Revive" sound state
+#define OFF_getLocalPlayer 0x007A8120 // cdecl () -> ClientPlayer*
+#define OFF_ClientPlayer_getSoldier 0x00FE1210 // thiscall () -> ClientSoldierEntity*: the weak pointer at +0x3C0, null when not on foot
+#define OFF_ClientSoldierWeaponsComponent_currentWeapon 0x01049B10 // thiscall () -> ClientSoldierWeapon*: list at +0xBC by the weapon handler's index
 
 namespace vfunc
 {
@@ -92,6 +96,71 @@ namespace fb
 		const char* m_name; //0x0004 partition path
 		char _0x0008[0x34];
 		EastlVector<DataContainer*> m_instances; //0x003C
+	};
+
+	class ClientSoldierAimingSimulation
+	{
+	public:
+		char _0x0000[0xF0];
+		int m_zoomLevel; //0x00F0 updateZoom sub_10D5590: 0 unzoomed, else the weapon's zoom level (ADS, scope)
+	};
+
+	class ClientSoldierWeapon
+	{
+	public:
+		char _0x0000[0x144];
+		ClientSoldierAimingSimulation* m_aiming; //0x0144 sub_102C110, updated by sub_10D6D10
+	};
+
+	class ClientSoldierWeaponsComponent
+	{
+	public:
+		ClientSoldierWeapon* currentWeapon()
+		{
+			return reinterpret_cast<ClientSoldierWeapon*(__thiscall*)(ClientSoldierWeaponsComponent*)>(OFF_ClientSoldierWeaponsComponent_currentWeapon)(this);
+		}
+	};
+
+	class ClientSoldierEntity
+	{
+	public:
+		char _0x0000[0x20];
+		float m_health; //0x0020 getHealth sub_F87BB0 (entity vtable slot 53)
+		char _0x0024[0x338];
+		ClientSoldierWeaponsComponent* m_weapons; //0x035C
+	};
+
+	class ClientPlayer
+	{
+	public:
+		ClientSoldierEntity* getSoldier()
+		{
+			return reinterpret_cast<ClientSoldierEntity*(__thiscall*)(ClientPlayer*)>(OFF_ClientPlayer_getSoldier)(this);
+		}
+
+		static ClientPlayer* GetLocal()
+		{
+			return reinterpret_cast<ClientPlayer*(__cdecl*)()>(OFF_getLocalPlayer)();
+		}
+	};
+
+	class ClientSoldierHealthModule
+	{
+	public:
+		char _0x0000[0x1B8];
+		ClientSoldierEntity* m_soldier; //0x01B8
+	};
+
+	// clientHealthModule::HealthModuleStateBase, the states of ClientSoldierHealthModule's state machine (+0x414)
+	class HealthModuleState
+	{
+	public:
+		void* m_vtable; //0x0000
+		char _0x0004[0x18];
+		ClientSoldierHealthModule* m_module; //0x001C
+
+		// revive state sub_7BC590
+		VFUNC(void, onHealthHasChanged, 28, (float oldHealth), (this, oldHealth))
 	};
 
 	struct ScreenViewport
@@ -202,6 +271,12 @@ namespace fb
 
 	class UIGraphAsset;
 
+	struct UIWidgetProperty
+	{
+		char* m_Name; //0x0000
+		char* m_Value; //0x0004
+	};//Size=0x0008
+
 	class UINodeData : public DataContainer
 	{
 	public:
@@ -232,7 +307,7 @@ namespace fb
 		WidgetVerticalAlignment m_VerticalAlign; //0x0020
 		WidgetHorisontalAlignment m_HorisontalAlign; //0x0024
 		UIDataBinding* m_DataBinding; //0x0028
-		Array<void> m_WidgetProperties; //0x002C UIWidgetProperty
+		Array<UIWidgetProperty> m_WidgetProperties; //0x002C
 		char* m_InstanceName; //0x0030
 		Array<UINodePort*> m_Inputs; //0x0034
 		Array<UINodePort*> m_Outputs; //0x0038

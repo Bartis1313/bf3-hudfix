@@ -2,7 +2,9 @@
 
 #include "sdk_ui.h"
 
+#include <algorithm>
 #include <format>
+#include <iterator>
 #include <string>
 #include <MinHook.h>
 
@@ -19,6 +21,11 @@ namespace hudfix
         Nametags,
         AmmoHealth,
         Chat,
+        NametagsEnemy,
+        HealthBars,
+        HealthBarsEnemy,
+        ReviveIcons, // man down and revive icons
+        Flags, // ClientMapMarkerEntity
         ElementCount
     };
 
@@ -26,8 +33,16 @@ namespace hudfix
     {
         bool autoScale = true; // s = min(w/1280, h/720)
         int scale = 100; // percent, used when autoScale is off
-        int element[ElementCount] = { 100, 100, 100, 100, 100, 100, 100, 100, 100 };
-        int opacity[ElementCount] = { 100, 100, 100, 100, 100, 100, 100, 100, 100 };
+        int element[ElementCount];
+        int opacity[ElementCount];
+        int scoped[ElementCount]; // percent of the opacity while the local soldier is zoomed
+
+        Settings()
+        {
+            std::fill(std::begin(element), std::end(element), 100);
+            std::fill(std::begin(opacity), std::end(opacity), 100);
+            std::fill(std::begin(scoped), std::end(scoped), 100);
+        }
     };
 
     // UI job thread
@@ -68,5 +83,6 @@ namespace hudfix
     void installMenuHooks();
     void installSettingsHooks();
     void installPerfHooks();
+    void installGameplayHooks();
     void patchChatQueue(fb::InternalDatabasePartition* partition);
 }

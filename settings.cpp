@@ -36,7 +36,12 @@ namespace hudfix
             "HudFixKillLog",
             "HudFixNametags",
             "HudFixAmmoHealth",
-            "HudFixChat"
+            "HudFixChat",
+            "HudFixNametagsEnemy",
+            "HudFixHealthBars",
+            "HudFixHealthBarsEnemy",
+            "HudFixReviveIcons",
+            "HudFixFlags"
         };
         constexpr const char* OPACITY_KEYS[ElementCount] =
         {
@@ -48,7 +53,29 @@ namespace hudfix
             "HudFixKillLogOpacity",
             "HudFixNametagsOpacity",
             "HudFixAmmoHealthOpacity",
-            "HudFixChatOpacity"
+            "HudFixChatOpacity",
+            "HudFixNametagsEnemyOpacity",
+            "HudFixHealthBarsOpacity",
+            "HudFixHealthBarsEnemyOpacity",
+            "HudFixReviveIconsOpacity",
+            "HudFixFlagsOpacity"
+        };
+        constexpr const char* SCOPED_KEYS[ElementCount] =
+        {
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            "HudFixNametagsScoped",
+            nullptr,
+            nullptr,
+            "HudFixNametagsEnemyScoped",
+            "HudFixHealthBarsScoped",
+            "HudFixHealthBarsEnemyScoped",
+            "HudFixReviveIconsScoped",
+            "HudFixFlagsScoped"
         };
 
         struct AssetGroup
@@ -117,6 +144,8 @@ namespace hudfix
                 sync(ELEMENT_KEYS[i], g_settings.element[i]);
                 if (OPACITY_KEYS[i])
                     sync(OPACITY_KEYS[i], g_settings.opacity[i]);
+                if (SCOPED_KEYS[i])
+                    sync(SCOPED_KEYS[i], g_settings.scoped[i]);
             }
         }
 
@@ -172,6 +201,8 @@ namespace hudfix
             set(group, ELEMENT_KEYS[i], static_cast<float>(g_settings.element[i]));
             if (OPACITY_KEYS[i])
                 set(group, OPACITY_KEYS[i], static_cast<float>(g_settings.opacity[i]));
+            if (SCOPED_KEYS[i])
+                set(group, SCOPED_KEYS[i], static_cast<float>(g_settings.scoped[i]));
         }
 
         reinterpret_cast<GroupChangedFn>(OFF_ProfileOptions_groupChanged)(game, GAMEPLAY_GROUP);

@@ -37,7 +37,8 @@ namespace hudfix
             Auto,
             Scale,
             Element,
-            Opacity
+            Opacity,
+            Scoped
         };
 
         struct Row
@@ -49,7 +50,8 @@ namespace hudfix
             int key; // -1 = not special
         };
 
-        constexpr size_t ROW_COUNT = 2 + 2 * ElementCount - 1; // minimap opacity is the game's own option
+        constexpr size_t SCOPED_ROW_COUNT = 6; // team and enemy nametags and health bars, revive icons, flags
+        constexpr size_t ROW_COUNT = 2 + 2 * ElementCount - 1 + SCOPED_ROW_COUNT; // minimap opacity is the game's own option
 
         std::array<Row, ROW_COUNT> g_rows
         {
@@ -57,20 +59,36 @@ namespace hudfix
             { "HudFixAuto", "AUTO HUD SCALE", Kind::Auto, -1 },
             { "HudFixScale", "HUD SCALE", Kind::Scale, -1 },
             { "HudFixMinimap", "MINIMAP SIZE", Kind::Element, Minimap },
-            { "HudFixMinimapIcons", "MINIMAP ICON SIZE", Kind::Element, MinimapIcons },
-            { "HudFixMinimapIconsOpacity", "MINIMAP ICON OPACITY", Kind::Opacity, MinimapIcons },
-            { "HudFixSquadList", "SQUAD LIST SIZE", Kind::Element, SquadList },
-            { "HudFixSquadListOpacity", "SQUAD LIST OPACITY", Kind::Opacity, SquadList },
+            { "HudFixMinimapIcons", "MAP ICON SIZE", Kind::Element, MinimapIcons },
+            { "HudFixMinimapIconsOpacity", "MAP ICON OPACITY", Kind::Opacity, MinimapIcons },
+            { "HudFixSquadList", "SQUAD SIZE", Kind::Element, SquadList },
+            { "HudFixSquadListOpacity", "SQUAD OPACITY", Kind::Opacity, SquadList },
             { "HudFixObjectives", "TICKETS SIZE", Kind::Element, Objectives },
             { "HudFixObjectivesOpacity", "TICKETS OPACITY", Kind::Opacity, Objectives },
             { "HudFixCrosshair", "CROSSHAIR SIZE", Kind::Element, Crosshair },
             { "HudFixCrosshairOpacity", "CROSSHAIR OPACITY", Kind::Opacity, Crosshair },
             { "HudFixKillLog", "KILL LOG SIZE", Kind::Element, KillLog },
             { "HudFixKillLogOpacity", "KILL LOG OPACITY", Kind::Opacity, KillLog },
-            { "HudFixNametags", "NAMETAG SIZE", Kind::Element, Nametags },
-            { "HudFixNametagsOpacity", "NAMETAG OPACITY", Kind::Opacity, Nametags },
-            { "HudFixAmmoHealth", "AMMO AND HEALTH SIZE", Kind::Element, AmmoHealth },
-            { "HudFixAmmoHealthOpacity", "AMMO AND HEALTH OPACITY", Kind::Opacity, AmmoHealth },
+            { "HudFixNametags", "TEAM TAG SIZE", Kind::Element, Nametags },
+            { "HudFixNametagsOpacity", "TEAM TAG OPACITY", Kind::Opacity, Nametags },
+            { "HudFixNametagsScoped", "TEAM TAG SCOPED", Kind::Scoped, Nametags },
+            { "HudFixNametagsEnemy", "ENEMY TAG SIZE", Kind::Element, NametagsEnemy },
+            { "HudFixNametagsEnemyOpacity", "ENEMY TAG OPACITY", Kind::Opacity, NametagsEnemy },
+            { "HudFixNametagsEnemyScoped", "ENEMY TAG SCOPED", Kind::Scoped, NametagsEnemy },
+            { "HudFixHealthBars", "TEAM HP BAR SIZE", Kind::Element, HealthBars },
+            { "HudFixHealthBarsOpacity", "TEAM HP BAR OPACITY", Kind::Opacity, HealthBars },
+            { "HudFixHealthBarsScoped", "TEAM HP BAR SCOPED", Kind::Scoped, HealthBars },
+            { "HudFixHealthBarsEnemy", "ENEMY HP BAR SIZE", Kind::Element, HealthBarsEnemy },
+            { "HudFixHealthBarsEnemyOpacity", "ENEMY HP BAR OPACITY", Kind::Opacity, HealthBarsEnemy },
+            { "HudFixHealthBarsEnemyScoped", "ENEMY HP BAR SCOPED", Kind::Scoped, HealthBarsEnemy },
+            { "HudFixReviveIcons", "REVIVE SIZE", Kind::Element, ReviveIcons },
+            { "HudFixReviveIconsOpacity", "REVIVE OPACITY", Kind::Opacity, ReviveIcons },
+            { "HudFixReviveIconsScoped", "REVIVE SCOPED", Kind::Scoped, ReviveIcons },
+            { "HudFixFlags", "FLAG SIZE", Kind::Element, Flags },
+            { "HudFixFlagsOpacity", "FLAG OPACITY", Kind::Opacity, Flags },
+            { "HudFixFlagsScoped", "FLAG SCOPED", Kind::Scoped, Flags },
+            { "HudFixAmmoHealth", "AMMO/HP SIZE", Kind::Element, AmmoHealth },
+            { "HudFixAmmoHealthOpacity", "AMMO/HP OPACITY", Kind::Opacity, AmmoHealth },
             { "HudFixChat", "CHAT SIZE", Kind::Element, Chat },
             { "HudFixChatOpacity", "CHAT OPACITY", Kind::Opacity, Chat },
         }
@@ -82,6 +100,7 @@ namespace hudfix
         constexpr int ELEMENT_STEP = 10;
         constexpr int OPACITY_MIN = 10;
         constexpr int OPACITY_MAX = 100;
+        constexpr int SCOPED_MIN = 0; // percent of the opacity, 0 hides it while scoped
 
         // UIComponentManager::registerComponentDataKeys reads name +0x8, DataSources +0x10 (count at -4), vtable slot 2
         struct FakeComponentData
@@ -160,6 +179,8 @@ namespace hudfix
                 return (std::max)(static_cast<int>(std::floor(autoScale() * 100.0f + 1e-3f)) - SCALE_MIN, 0) / ELEMENT_STEP + 1;
             case Kind::Opacity:
                 return (OPACITY_MAX - OPACITY_MIN) / ELEMENT_STEP + 1;
+            case Kind::Scoped:
+                return (OPACITY_MAX - SCOPED_MIN) / ELEMENT_STEP + 1;
             default:
                 return (ELEMENT_MAX - ELEMENT_MIN) / ELEMENT_STEP + 1;
             }
@@ -173,6 +194,8 @@ namespace hudfix
                 return SCALE_MIN + index * ELEMENT_STEP;
             case Kind::Opacity:
                 return OPACITY_MIN + index * ELEMENT_STEP;
+            case Kind::Scoped:
+                return SCOPED_MIN + index * ELEMENT_STEP;
             default:
                 return ELEMENT_MIN + index * ELEMENT_STEP;
             }
@@ -188,6 +211,8 @@ namespace hudfix
                 return std::clamp((settings().scale - SCALE_MIN + ELEMENT_STEP / 2) / ELEMENT_STEP, 0, itemCount(row) - 1);
             case Kind::Opacity:
                 return std::clamp((settings().opacity[row.element] - OPACITY_MIN + ELEMENT_STEP / 2) / ELEMENT_STEP, 0, itemCount(row) - 1);
+            case Kind::Scoped:
+                return std::clamp((settings().scoped[row.element] - SCOPED_MIN + ELEMENT_STEP / 2) / ELEMENT_STEP, 0, itemCount(row) - 1);
             default:
                 return std::clamp((settings().element[row.element] - ELEMENT_MIN + ELEMENT_STEP / 2) / ELEMENT_STEP, 0, itemCount(row) - 1);
             }
@@ -262,6 +287,9 @@ namespace hudfix
                 break;
             case Kind::Opacity:
                 settings().opacity[row.element] = percentOfItem(row, index);
+                break;
+            case Kind::Scoped:
+                settings().scoped[row.element] = percentOfItem(row, index);
                 break;
             }
             saveSettings();
@@ -381,6 +409,8 @@ namespace hudfix
             setArray(binding->m_NestedLists, rows);
             binding->m_ListIndex = 5; // hud list index
             binding->m_KeepScrollOffset = true;
+            // too many rows for the List_01 mask, sent as "UseScrollBar" by sub_88A350 for mouse scrolling
+            binding->m_UseScrollBar = true;
             // for arrow keys specifically
             binding->m_NavigationType = fb::sendEventTopBottom;
             mainBinding->m_NavigationType = fb::sendEventTopBottom;
@@ -453,6 +483,7 @@ namespace hudfix
                 };
             link(main, fb::UIWidgetEventID_OnReachedBottom, list, fb::UIWidgetEventID_EnterTop);
             link(list, fb::UIWidgetEventID_OnReachedTop, main, fb::UIWidgetEventID_EnterBottom);
+
             setArray(screen->m_Connections, connections);
 
             std::vector<fb::UINodeData*> nodes = itemsOf(screen->m_Nodes);

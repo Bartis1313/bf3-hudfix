@@ -82,6 +82,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="gameplay.cpp" />
     <ClCompile Include="menu.cpp" />
     <ClCompile Include="perf.cpp" />
     <ClCompile Include="scale.cpp" />

@@ -14,6 +14,10 @@
 #define OFF_UIMinimap_render 0x0094AB90 // thiscall (const Mat4*, a3, a4): icons (drawFromAtlas) and labels (drawText sub_940E00) into the minimap texture
 #define OFF_UIHud_drawFromAtlas 0x0077ACB0 // thiscall (Vec2* outSize, UIHudIconDrawParams*, time, pad, rotation)
 #define OFF_UIHud_drawText 0x007849B0 // thiscall (GRectF* out, Vec2* pos, text, size, glow, halign, valign, snap): out = local text rect at the base size
+#define OFF_UIHud_updateTextLine 0x0077C260 // thiscall (char* line, const Vec2* pos): drawText's cache hit (lines match by hash, text rgb, glow rgb), sets the line's GFxDrawText (+0x58) colour, matrix and glow, then displays it; the text alpha only reaches the glow
+#define OFF_UIHud_drawPercentageBar 0x0077B640 // thiscall (Vec2* outSize, const Vec2* center, const Vec2* size, int relation, const Vec4* color, float scale, float percent): health bars, atlas icon 133
+#define OFF_UI3dIconComp_updateFlashIcons 0x00955B20 // thiscall (dt): every Flash icon clip of the component gets a GFxDisplayInfo (distance scale, alpha) through GFxValue::SetDisplayInfo
+#define OFF_UIHud3dIcons_drawPlayerIcon 0x00925140 // thiscall (player, dt, soldier, vehicle, bool fade, float health, int seat, int status): builds a player's or vehicle's UI3dIcon (relation, health, man down), projects it with getScreenCoordinate and draws it
 #define OFF_UIScaleformRenderer_ctor 0x01770370 // thiscall (a2, a3, bool smallGlyphCache): glyph cache 1024 if set, else 2048; only caller UIEngine create sub_1770A80, whose init sub_1768640 hands it to GFxFontCacheManager::SetTextureConfig
 #define OFF_UIScreenManager_initializeScreen 0x0102AAD0 // thiscall (const char* screen): the screen's WidgetNodes -> "<screen>.instance1.initializeScreen", which only sets up clips its movie already has
 #define OFF_GFxMovieRoot_advance 0x01429DF0 // thiscall (dt, catchUp) -> float, vtable 0x2201DA8 slot 37; ActionScript runs here, Invoke is safe after it
@@ -198,6 +202,40 @@ namespace fb
 		char _0x0000[0x10];
 		float m_textColor[4]; //0x0010 rgba
 		float m_glowColor[4]; //0x0020 rgba
+	};
+
+	// UIHudIcon enum values (reflection 0x23F4808)
+	enum UIHudIcon
+	{
+		UIHudIcon_Revive = 119,
+		UIHudIcon_PercentageBarBackground = 133,
+		UIHudIcon_PlayerDead = 150, // man down
+		UIHudIcon_Player = 151
+	};
+
+	// what drawIconInfo sub_9249F0 switches on
+	enum UI3dIconRelation
+	{
+		UI3dIconRelation_Enemy = 1,
+		UI3dIconRelation_Friendly = 2,
+		UI3dIconRelation_Squad = 4
+	};
+
+	// vtable 0x20ABF9C, filled by the player icon builder sub_925140
+	class UI3dIcon
+	{
+	public:
+		char _0x0000[0x2AC];
+		UI3dIconRelation m_relation; //0x02AC
+	};
+
+	// GFx 3 GFxDrawText, impl vtable 0x21F6DE8; a HUD text line keeps its own at +0x58
+	class GFxDrawText
+	{
+	public:
+		// float[4][2]: rgba rows of { multiply, add }, the whole line and its glow filter
+		VFUNC(void, setCxform, 22, (const float* cxform), (this, cxform));
+		VFUNC(const float*, getCxform, 23, (), (this));
 	};
 
 	// UIHud::drawFromAtlas sub_77ACB0 params

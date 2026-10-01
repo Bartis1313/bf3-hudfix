@@ -24,10 +24,15 @@ The options in the **Gameplay** tab:
   - tickets and objective bar
   - crosshair
   - kill log
-  - nametags
+  - team nametags and enemy nametags (separately)
+  - team health bars and enemy health bars (separately, on top of their nametag size)
+  - man down / revive icons (on top of the team nametag size)
+  - objective flags in the world (icon, letter and distance)
   - ammo and health (including vehicle health and passenger list)
   - chat
 - **Per-element opacity** (10% - 100%, 10% steps) for the same elements, except the minimap (the game has its own option)
+- **Opacity when scoped** (0% - 100% of the element's opacity) for team and enemy nametags, team and enemy health bars,
+  revive icons and flags
 - Bottom-left widgets keep their place next to the resized minimap.
 - The glyph cache is enlarged (1024 -> 2048) so scaled fonts stay sharp.
 
@@ -37,6 +42,10 @@ The options in the **Gameplay** tab:
   frame. This is mostly an issue on modern cpus. hudfix refreshes it once per second instead.
 - **Chatbox lag**: chat lines never expire, the chat keeps up to 200 of them, and every new line resends the whole
   list to the UI. Once the chat fills up, each message stalls the game. hudfix caps the chat at 20 lines (credits [FlashHit](https://github.com/FlashHit)).
+
+### Gameplay fixes
+
+- **Crabwalk / unkillable revived players** (credits gm_fix).
 
 All options live in UI **Gameplay** tab. They are saved in your game profile next
 to the rest of the gameplay settings (keys `HudFixAuto`, `HudFixScale`, `HudFixMinimap`, ...), so there is no extra
