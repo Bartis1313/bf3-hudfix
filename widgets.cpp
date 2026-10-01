@@ -24,10 +24,15 @@ namespace hudfix
         using DisplayFn = void(__thiscall*)(fb::GFxMovieView* movie);
         using AdvanceFn = float(__thiscall*)(fb::GFxMovieView* movie, float dt, unsigned int catchUp);
         using InitializeScreenFn = void(__thiscall*)(fb::UIScreenManager* manager, const char* screen);
+        using SetScreenVisibleFn = bool(__thiscall*)(fb::UIScreenManager* manager, fb::UIScreenData* screen, bool visible);
 
         DisplayFn oDisplay = nullptr;
         AdvanceFn oAdvance = nullptr;
         InitializeScreenFn oInitializeScreen = nullptr;
+        SetScreenVisibleFn oSetScreenVisible = nullptr;
+
+        // the commo rose picks its options by mouse distance in screen pixels, so its screen keeps the unscaled size
+        constexpr unsigned int COMMO_ROSE_SCREEN[4] = { 0xC9639154, 0x4E99D107, 0x9569DEB4, 0x66673E52 };
 
         constexpr unsigned int WIDGET_MANAGED = 0x40;
         constexpr unsigned short VARS_TRANSFORM = 0x1 | 0x2 | 0x8 | 0x10;
@@ -355,6 +360,24 @@ namespace hudfix
             g_scaled.clear();
         }
 
+        // the scale is set on the screen's own clip, ActionScript sees it (Get/SetDisplayInfo)
+        bool __fastcall hkSetScreenVisible(fb::UIScreenManager* _this, void*, fb::UIScreenData* screen, bool visible)
+        {
+            const bool shown = oSetScreenVisible(_this, screen, visible);
+            if (!shown || !visible || !screen || !_this->m_rootMovie || std::memcmp(screen->m_guid, COMMO_ROSE_SCREEN, sizeof(COMMO_ROSE_SCREEN)) != 0)
+                return shown;
+
+            Clip clip;
+            fb::GFxDisplayInfo info{ };
+            if (clip.resolve(_this->m_rootMovie->m_movieView, (std::string(screen->m_instanceName) + ".instance1").c_str()) && clip.read(&info))
+            {
+                info.m_xScale = info.m_yScale = 100.0 / currentScale();
+                info.m_varsSet = 0x8 | 0x10;
+                clip.write(&info);
+            }
+            return shown;
+        }
+
         void __fastcall hkInitializeScreen(fb::UIScreenManager* _this, void*, const char* name)
         {
             linkHudList();
@@ -384,6 +407,7 @@ namespace hudfix
     void installWidgetHooks()
     {
         hook(OFF_UIScreenManager_initializeScreen, hkInitializeScreen, &oInitializeScreen);
+        hook(OFF_UIScreenManager_setScreenVisible, hkSetScreenVisible, &oSetScreenVisible);
         hook(OFF_GFxMovieRoot_advance, hkAdvance, &oAdvance);
         hook(OFF_GFxMovieRoot_display, hkDisplay, &oDisplay);
     }

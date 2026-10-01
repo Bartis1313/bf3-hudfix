@@ -19,6 +19,7 @@
 #define OFF_UI3dIconComp_updateFlashIcons 0x00955B20 // thiscall (dt): every Flash icon clip of the component gets a GFxDisplayInfo (distance scale, alpha) through GFxValue::SetDisplayInfo
 #define OFF_UIHud3dIcons_drawPlayerIcon 0x00925140 // thiscall (player, dt, soldier, vehicle, bool fade, float health, int seat, int status): builds a player's or vehicle's UI3dIcon (relation, health, man down), projects it with getScreenCoordinate and draws it
 #define OFF_UIScaleformRenderer_ctor 0x01770370 // thiscall (a2, a3, bool smallGlyphCache): glyph cache 1024 if set, else 2048; only caller UIEngine create sub_1770A80, whose init sub_1768640 hands it to GFxFontCacheManager::SetTextureConfig
+#define OFF_UIScreenManager_setScreenVisible 0x0101B940 // thiscall (UIScreenData*, bool visible): "<screen>.instance1" visible through Get/SetDisplayInfo, other fields kept
 #define OFF_UIScreenManager_initializeScreen 0x0102AAD0 // thiscall (const char* screen): the screen's WidgetNodes -> "<screen>.instance1.initializeScreen", which only sets up clips its movie already has
 #define OFF_GFxMovieRoot_advance 0x01429DF0 // thiscall (dt, catchUp) -> float, vtable 0x2201DA8 slot 37; ActionScript runs here, Invoke is safe after it
 #define OFF_GFxMovieRoot_display 0x014202F0 // thiscall (), vtable 0x2201DA8 slot 38; renderJob sub_176CF60 advances every movie, then displays them
@@ -138,7 +139,9 @@ namespace fb
 	class UIScreenData
 	{
 	public:
-		char _0x0000[0x28];
+		char _0x0000[0x8];
+		unsigned int m_guid[4]; //0x0008 showScreen sub_101E1E0 finds screens by it
+		char _0x0018[0x10];
 		WidgetNode** m_widgetsBegin; //0x0028
 		WidgetNode** m_widgetsEnd; //0x002C
 		char _0x0030[0x3C];
