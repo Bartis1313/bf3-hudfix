@@ -74,7 +74,7 @@ namespace hudfix
 
         const fb::ScreenViewport* viewport()
         {
-            auto* dx = fb::DxRenderer::GetInstance();
+            fb::DxRenderer* dx = fb::DxRenderer::GetInstance();
             return dx ? &dx->m_viewport : nullptr;
         }
 
@@ -187,6 +187,8 @@ namespace hudfix
 
         int __cdecl hkRenderJob(fb::UISystem* system, float dt)
         {
+            updateMenu();
+
             const float scale = desiredScale();
             if (scale != g_scale)
             {
@@ -201,7 +203,7 @@ namespace hudfix
         void __fastcall hkOnViewResized(fb::UIMovieInstance* _this, void*, unsigned int x, unsigned int y, unsigned int w, unsigned int h)
         {
             const float scale = g_scale;
-            const auto* vp = viewport();
+            const fb::ScreenViewport* vp = viewport();
             if (scale <= 1.0f || !vp || w < SCLAEFORM_WIDTH || h < SCLAEFORM_HEIGHT)
             {
                 oOnViewResized(_this, x, y, w, h);
@@ -326,7 +328,7 @@ namespace hudfix
         // rows are right-aligned at floor(0.95w)+x, the first one at y = 100 * min(w/1280, 1)
         void __fastcall hkKillfeed(void* _this, void*, float dt)
         {
-            const auto* vp = viewport();
+            const fb::ScreenViewport* vp = viewport();
             const fb::Vec2 anchor = vp ? fb::vec2(std::floor(vp->m_width * 0.95f) + vp->m_x, 0.0f) : fb::Vec2{ };
             const float top = vp ? 100.0f * (std::min)(vp->m_width / SCLAEFORM_WIDTH, 1.0f) : 0.0f;
             ScopeGuard scope(Scope::Killfeed, vp != nullptr, anchor, fb::vec2(anchor.m_x, top), elementFactor(KillLog), elementOpacity(KillLog));
@@ -397,7 +399,7 @@ namespace hudfix
         // cached and shared, so every update sets it, back to 1 outside a fade
         int __fastcall hkUpdateTextLine(void* _this, void*, unsigned char* line, const fb::Vec2* pos)
         {
-            if (auto* text = *reinterpret_cast<fb::GFxDrawText**>(line + 0x58))
+            if (fb::GFxDrawText* text = *reinterpret_cast<fb::GFxDrawText**>(line + 0x58))
             {
                 float cxform[4][2];
                 std::memcpy(cxform, text->getCxform(), sizeof(cxform));
@@ -413,7 +415,7 @@ namespace hudfix
 
     float autoScale()
     {
-        const auto* vp = viewport();
+        const fb::ScreenViewport* vp = viewport();
         if (!vp || vp->m_width < SCLAEFORM_WIDTH || vp->m_height < SCLAEFORM_HEIGHT)
             return 1.0f;
 

@@ -20,14 +20,25 @@
 #define OFF_UIHud3dIcons_drawPlayerIcon 0x00925140 // thiscall (player, dt, soldier, vehicle, bool fade, float health, int seat, int status): builds a player's or vehicle's UI3dIcon (relation, health, man down), projects it with getScreenCoordinate and draws it
 #define OFF_UIScaleformRenderer_ctor 0x01770370 // thiscall (a2, a3, bool smallGlyphCache): glyph cache 1024 if set, else 2048; only caller UIEngine create sub_1770A80, whose init sub_1768640 hands it to GFxFontCacheManager::SetTextureConfig
 #define OFF_UIScreenManager_setScreenVisible 0x0101B940 // thiscall (UIScreenData*, bool visible): "<screen>.instance1" visible through Get/SetDisplayInfo, other fields kept
+#define OFF_UIWeaponComp_onMessage 0x0091CDA0 // thiscall (const Message*), this = comp + 72: UIDamageGivenToEnemyMessage (damage float +0x28) sets the hit indicator level key 0xA5FCCBD4
+#define OFF_SoldierBulletHit_onMessage 0x0109AAB0 // thiscall (const Message*): client soldier component; BulletToSoldierComponentsHitMessage (type 0x47F6C6F0, ctor sub_1FD7220) from the bullet's own collision, BulletHitInfo at +0x30: BoneType +0x58 (1 head), ShooterPlayerId +0x5C
+#define OFF_g_clientGameContext 0x02380B58 // ClientGameContext* global
+#define OFF_ClientPlayerManager_getPlayer 0x00FDCB40 // thiscall (id) -> ClientPlayer*, null past the player count
+#define OFF_UICapturePoint_progressEpsilon 0x00948263 // disp32 of comisd xmm1, [qword_207FB70] (0.05) in sub_947C00 (vtable 0x20C3F48 slot 16 sub_94A420): |progress - last frame's| (0..100) above it pushes dirty bit 10, the last frame's +0x2C8 is stored either way
+#define OFF_UIMessageComp_onMessage 0x00933C50 // thiscall (const Message*), this = comp + 72: HUD texts, UINetworkKilledOtherPlayerMessage is the local player's kill (headshot bool +0x4C, sub_931240)
 #define OFF_UIScreenManager_initializeScreen 0x0102AAD0 // thiscall (const char* screen): the screen's WidgetNodes -> "<screen>.instance1.initializeScreen", which only sets up clips its movie already has
 #define OFF_GFxMovieRoot_advance 0x01429DF0 // thiscall (dt, catchUp) -> float, vtable 0x2201DA8 slot 37; ActionScript runs here, Invoke is safe after it
 #define OFF_GFxMovieRoot_display 0x014202F0 // thiscall (), vtable 0x2201DA8 slot 38; renderJob sub_176CF60 advances every movie, then displays them
 #define OFF_GFxValue_getDisplayInfo 0x012F0000 // ObjectInterface thiscall (data, GFxDisplayInfo*)
 #define OFF_GFxValue_setDisplayInfo 0x012F0240 // ObjectInterface thiscall (data, const GFxDisplayInfo*): only m_varsSet fields
+#define OFF_GFxCharacterHandle_resolve 0x012FF2F0 // thiscall (GFxMovieRoot*) retn 4 -> GFxASCharacter*: the handle's cached character or a path lookup
+#define OFF_GFxCharacter_getHandle 0x0130DCF0 // thiscall () -> GFxCharacterHandle*: the cached handle +148, made on first use
+#define OFF_GFxValue_getCxform 0x012ED1A0 // ObjectInterface thiscall (data, GFxCxform* out): the clip's own color transform
+#define OFF_GFxValue_setCxform 0x012ED1F0 // ObjectInterface thiscall (data, const GFxCxform*), then SetAcceptAnimMoves(false)
 #define OFF_GFxValue_objectRelease 0x012F5310 // ObjectInterface thiscall (GFxValue*, data)
 #define OFF_GFxValue_invoke 0x012F6440 // ObjectInterface thiscall (data, GFxValue* result, name, const GFxValue* args, nargs, bool isDisplayObject)
 #define OFF_GFxValue_getMember 0x012F80F0 // ObjectInterface thiscall (data, name, GFxValue* out, bool isDisplayObject)
+#define OFF_GFxValue_visitMembers 0x012F2400 // ObjectInterface thiscall (data, ObjVisitor*, bool isDisplayObject) retn 0Ch: visitor slot 1 Visit(const char* name, const GFxValue*)
 #define OFF_GFxValue_setMember 0x012EFAE0 // ObjectInterface thiscall (data, name, const GFxValue* value, bool isDisplayObject)
 
 // options menu rows
@@ -37,6 +48,8 @@
 #define OFF_UIDataValue_setMember 0x0100D140 // thiscall (name, const UIDataValue*): deep copy into this value's arena
 #define OFF_UIDataValue_destroy 0x01005970 // thiscall ()
 #define OFF_UIDataValue_makeContainer 0x01009A70 // thiscall (count)
+#define OFF_UIDataValue_setType 0x01003CE0 // thiscall (type) retn 4: clears the value, sets hasChanged (+0x14 bit 0) when the type differs; 2 is bool (byte +0x8)
+#define OFF_UISystem_refreshData_SLOT 24 // vtable +0x60 (key, bool keepOriginalType): false drops the cached value (refetched from its component) and marks it changed, then notifies the key's listeners
 #define OFF_UIDataValue_setEnumItem 0x00906650 // cdecl (container, index, label, index value): {Index, Label} item
 #define OFF_g_uiDataArena 0x022E8BE0 // arena object scalar UIDataValues are built with
 #define OFF_g_profileOptions 0x02384D74 // ProfileOptions*, the profile options (PROF_SAVE_profile / PROF_SAVE_body)
@@ -46,6 +59,9 @@
 #define OFF_ProfileOptions_loadProfile 0x00FBB950 // thiscall (data, size, text, textSize): merges the saved profile into the live groups (+0x10), only caller is the load-done message in onMessage sub_FBF370
 #define OFF_ProfileOptions_resetProfile 0x00FBD7A0 // thiscall (): clears all 4 banks of 9 groups, refills them from the settings asset; ctor sub_FBEC40 and profile resets
 #define OFF_SettingsGroup_assign 0x00FBD680 // thiscall (const SettingsGroup* source): clear + copy; banks +0x10 live, +0x250 last loaded/saved, +0x490 defaults, +0x6D0 pending save
+#define OFF_vt_GFxSprite 0x021F9878 // GFxASCharacter blend mode byte at +0xA8 (its GetBlendMode, slot 5; +0xA4 in the 2010 build)
+#define OFF_vt_GFxGenericCharacter 0x021F6CC0 // a shape's character, made by GFxCharacterDef::CreateCharacterInstance sub_1308F40 (0x80 bytes, def at +0x7C)
+#define OFF_vt_GFxConstShapeCharacterDef 0x021FE948 // what GFx_DefineShapeLoader sub_13EBD90 makes of a SWF shape: styles at +0x3C fill (40 bytes each, Type +0, solid color +4), +0x40 line (20 bytes, color +8), counts +0x44, +0x48
 #define OFF_vt_UIStackArena 0x020C26AC // bump allocator, cursor at +0x208, no bounds check, free is a no-op
 
 namespace fb
@@ -112,10 +128,18 @@ namespace fb
 		unsigned short m_varsSet; //0x00E0 BITFLAG 1 x, 2 y, 8 xscale, 0x10 yscale
 	};
 
+	// GRenderer::Cxform, GFxCharacter +0x24
+	struct GFxCxform
+	{
+		float m_rows[4][2]; //0x0000 rgba rows of { multiply, add }
+	};//Size=0x0020
+
 	// vtable 0x2201DA8 GFxMovieRoot view slots - 5
 	class GFxMovieView
 	{
 	public:
+		VFUNC(void, createObject, 13, (GFxValue* out, const char* className, const GFxValue* args, unsigned int count), (this, out, className, args, count)); // sub_12F7D00, null class: Object
+		VFUNC(void, createArray, 14, (GFxValue* out), (this, out)); // sub_12F62B0
 		VFUNC(bool, getVariable, 17, (GFxValue* out, const char* path), (this, out, path));
 		VFUNC(void, setViewport, 25, (const GViewport* vp), (this, vp));
 		VFUNC(void, setViewScaleMode, 27, (GFxScaleMode mode), (this, mode));
@@ -144,7 +168,9 @@ namespace fb
 		char _0x0018[0x10];
 		WidgetNode** m_widgetsBegin; //0x0028
 		WidgetNode** m_widgetsEnd; //0x002C
-		char _0x0030[0x3C];
+		char _0x0030[0x24];
+		bool m_renderToTexture; //0x0054 drawn into the cockpit HUD mesh's texture (HudData UseRenderTarget), set by pushScreen sub_10246D0
+		char _0x0055[0x17];
 		char m_instanceName[64]; //0x006C
 	};
 

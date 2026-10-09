@@ -7,11 +7,11 @@
 namespace
 {
     // UIMovieInstance::onViewResized sub esp, 48h / push ebx
-    constexpr unsigned char readyBytes[] = { 0x83, 0xEC, 0x48, 0x53 };
+    constexpr BYTE readyBytes[] = { 0x83, 0xEC, 0x48, 0x53 };
 
     DWORD WINAPI initThread(LPVOID)
     {
-        const auto* probe = reinterpret_cast<const unsigned char*>(OFF_UIMovieInstance_onViewResized);
+        const auto* probe = reinterpret_cast<const BYTE*>(OFF_UIMovieInstance_onViewResized);
         while (std::memcmp(probe, readyBytes, sizeof(readyBytes)) != 0)
             Sleep(1);
 
@@ -27,6 +27,8 @@ namespace
         hudfix::installSettingsHooks();
         hudfix::installPerfHooks();
         hudfix::installGameplayHooks();
+        hudfix::installScopeHooks();
+        hudfix::installInputHooks();
 
         const MH_STATUS status = MH_EnableHook(MH_ALL_HOOKS);
         hudfix::log("hooks: {}", MH_StatusToString(status));

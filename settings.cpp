@@ -10,6 +10,17 @@
 
 namespace hudfix
 {
+    // prob settingsmanager has path, but whatever...
+    std::filesystem::path documentsDir()
+    {
+        PWSTR path = nullptr;
+        std::filesystem::path result = ".";
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &path)))
+            result = std::filesystem::path(path) / "Battlefield 3";
+        CoTaskMemFree(path);
+        return result;
+    }
+
     namespace
     {
         using SetFloatFn = void(__thiscall*)(fb::SettingsGroup* group, const char* name, float value);
@@ -26,6 +37,9 @@ namespace hudfix
         constexpr int GAMEPLAY_GROUP = 4;
         constexpr const char* SCALE_AUTO_KEY = "HudFixAuto";
         constexpr const char* SCALE_KEY = "HudFixScale";
+        constexpr const char* SIGHT_ZOOM_KEY = "HudFixSightZoom";
+        constexpr const char* VEHICLE_BRIGHTNESS_KEY = "HudFixVehicleBrightness";
+        constexpr const char* TICKET_PANEL_KEY = "HudFixRemoveTicketPanel";
         constexpr const char* ELEMENT_KEYS[ElementCount] = 
         { 
             "HudFixMinimap",
@@ -41,7 +55,16 @@ namespace hudfix
             "HudFixHealthBars",
             "HudFixHealthBarsEnemy",
             "HudFixReviveIcons",
-            "HudFixFlags"
+            "HudFixFlags",
+            "HudFixCommoRose",
+            "HudFixHitMarkers",
+            "HudFixHeadshotMarkers",
+            "HudFixKillMarkers",
+            "HudFixScopeSize",
+            "HudFixVehicleCrosshair",
+            "HudFixVehicleHud",
+            "HudFixChaseCrosshair",
+            "HudFixScoreMessages"
         };
         constexpr const char* OPACITY_KEYS[ElementCount] =
         {
@@ -58,7 +81,16 @@ namespace hudfix
             "HudFixHealthBarsOpacity",
             "HudFixHealthBarsEnemyOpacity",
             "HudFixReviveIconsOpacity",
-            "HudFixFlagsOpacity"
+            "HudFixFlagsOpacity",
+            "HudFixCommoRoseOpacity",
+            "HudFixHitMarkersOpacity",
+            "HudFixHeadshotMarkersOpacity",
+            "HudFixKillMarkersOpacity",
+            nullptr, // the scope has no "opacity", it's just bloom, prefer untouched
+            "HudFixVehicleCrosshairOpacity",
+            "HudFixVehicleHudOpacity",
+            "HudFixChaseCrosshairOpacity",
+            "HudFixScoreMessagesOpacity"
         };
         constexpr const char* SCOPED_KEYS[ElementCount] =
         {
@@ -75,7 +107,38 @@ namespace hudfix
             "HudFixHealthBarsScoped",
             "HudFixHealthBarsEnemyScoped",
             "HudFixReviveIconsScoped",
-            "HudFixFlagsScoped"
+            "HudFixFlagsScoped",
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr
+        };
+        constexpr const char* COLOR_KEYS[ColorSlotCount] =
+        {
+            "HudFixHitMarkersColor",
+            "HudFixHeadshotMarkersColor",
+            "HudFixKillMarkersColor",
+            "HudFixScopeColor",
+            "HudFixCrosshairColor",
+            "HudFixVehicleCrosshairColor",
+            "HudFixVehicleHudColor",
+            "HudFixChaseCrosshairColor"
+        };
+
+        constexpr const char* CUSTOM_COLOR_KEYS[ColorSlotCount] =
+        {
+            "HudFixHitMarkersRGB",
+            "HudFixHeadshotMarkersRGB",
+            "HudFixKillMarkersRGB",
+            "HudFixScopeRGB",
+            "HudFixCrosshairRGB",
+            "HudFixVehicleCrosshairRGB",
+            "HudFixVehicleHudRGB",
+            "HudFixChaseCrosshairRGB"
         };
 
         struct AssetGroup
@@ -93,26 +156,42 @@ namespace hudfix
             { "UI/Assets/TicketCounter", { Objectives, Minimap } },
             { "UI/Assets/ObjectiveBar", { Objectives, Minimap } },
             { "UI/Assets/Crosshair", { Crosshair, Crosshair } },
+            { "UI/Assets/Hitindicator", { HitMarkers, HitMarkers } },
             { "UI/Assets/Ammo", { AmmoHealth, AmmoHealth } },
             { "UI/Assets/Health", { AmmoHealth, AmmoHealth } },
             { "UI/Assets/VehicleHealth", { AmmoHealth, AmmoHealth } },
             { "UI/Assets/PassangerList", { AmmoHealth, AmmoHealth } },
             { "UI/Assets/ChatLog", { Chat, Minimap } },
+            { "UI/Assets/ScoreAggregator", { ScoreMessages, ScoreMessages } },
+            { "UI/Assets/HudMessage", { ScoreMessages, ScoreMessages } }, // the score events in the middle ("ENEMY KILLED 100")
+            // the vehicle screens' widgets (UI/Flow/Screen/Vehicle)
+            { "UI/Assets/VehicleCrosshair", { VehicleCrosshair, VehicleCrosshair } },
+            { "UI/Assets/Tank3PCrosshair", { ChaseCrosshair, ChaseCrosshair } },
+            { "UI/Assets/Tank3PCrosshairGrade", { ChaseCrosshair, ChaseCrosshair } },
+            { "UI/Assets/CannonPredictiveSight", { VehicleCrosshair, VehicleCrosshair } },
+            { "UI/Assets/VehicleHudText", { VehicleHud, VehicleHud } },
+            { "UI/Assets/VehicleHudWarnings", { VehicleHud, VehicleHud } },
+            { "UI/Assets/VehicleWeaponName", { VehicleHud, VehicleHud } },
+            { "UI/Assets/VehicleWeaponUnlockDisplay", { VehicleHud, VehicleHud } },
+            { "UI/Assets/VehicleGunnerWeaponElevation", { VehicleHud, VehicleHud } },
+            { "UI/Assets/VehicleStaticArt", { VehicleHud, VehicleHud } },
+            { "UI/Assets/VehicleWeaponReload", { VehicleHud, VehicleHud } },
+            { "UI/Assets/VehicleMissileDisplay", { VehicleHud, VehicleHud } },
+            { "UI/Assets/TurretDisplay", { VehicleHud, VehicleHud } },
+            { "UI/Assets/HeliGunnerDirectionDisplay", { VehicleHud, VehicleHud } },
+            { "UI/Assets/BankAngle", { VehicleHud, VehicleHud } },
+            { "UI/Assets/VelocityVector", { VehicleHud, VehicleHud } },
+            { "UI/Assets/TrimBall", { VehicleHud, VehicleHud } },
+            { "UI/Assets/RadarAltitudeMeter", { VehicleHud, VehicleHud } },
+            { "UI/Assets/RadarAltitudeDisplay", { VehicleHud, VehicleHud } },
+            { "UI/Assets/ClimbRateMeter", { VehicleHud, VehicleHud } },
+            { "UI/Assets/ArtificialHorizon", { VehicleHud, VehicleHud } },
+            { "UI/Assets/ArtificialHorizonHelicopter", { VehicleHud, VehicleHud } },
+            { "UI/Assets/JetTrackingAndLockingManager", { VehicleCrosshair, VehicleCrosshair } }, // the heat seeker's lock circle, an aim
         };
 
         Settings g_settings;
         std::mutex g_logLock;
-
-        // prob settingsmanager has path, but whatever...
-        std::filesystem::path documentsDir()
-        {
-            PWSTR path = nullptr;
-            std::filesystem::path result = ".";
-            if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &path)))
-                result = std::filesystem::path(path) / "Battlefield 3";
-            CoTaskMemFree(path);
-            return result;
-        }
 
         bool equalsNoCase(const char* a, const char* b)
         {
@@ -136,6 +215,14 @@ namespace hudfix
             g_settings.autoScale = autoScale != 0;
             sync(SCALE_KEY, g_settings.scale);
 
+            sync(SIGHT_ZOOM_KEY, g_settings.sightZoom);
+            g_settings.sightZoom = std::clamp(g_settings.sightZoom, 0, SightZoomCount - 1);
+            sync(VEHICLE_BRIGHTNESS_KEY, g_settings.vehicleBrightness);
+            g_settings.vehicleBrightness = std::clamp(g_settings.vehicleBrightness, VEHICLE_BRIGHTNESS_MIN, VEHICLE_BRIGHTNESS_MAX);
+            int removeTicketPanel = g_settings.removeTicketPanel ? 1 : 0;
+            sync(TICKET_PANEL_KEY, removeTicketPanel);
+            g_settings.removeTicketPanel = removeTicketPanel != 0;
+
             if (g_settings.scale <= 0) // the slider builds stored "fit" as 0
                 g_settings.scale = 100;
 
@@ -147,6 +234,27 @@ namespace hudfix
                 if (SCOPED_KEYS[i])
                     sync(SCOPED_KEYS[i], g_settings.scoped[i]);
             }
+            for (int i = 0; i < ColorSlotCount; ++i)
+            {
+                sync(COLOR_KEYS[i], g_settings.color[i]);
+                sync(CUSTOM_COLOR_KEYS[i], g_settings.customColor[i]); // 24 bits, exact in the float
+
+                // the rows used to pick from COLORS: such a pick is now that color as CUSTOM
+                const int preset = g_settings.color[i];
+                if (preset > 0 && preset < COLOR_COUNT)
+                {
+                    const Color& c = COLORS[preset];
+                    g_settings.customColor[i] = std::lround(c.r * 255.0f) << 16 | std::lround(c.g * 255.0f) << 8 | std::lround(c.b * 255.0f);
+                    g_settings.color[i] = CUSTOM_COLOR;
+                }
+                else if (preset != 0)
+                {
+                    g_settings.color[i] = CUSTOM_COLOR;
+                }
+            }
+            applyScopeColor();
+            applyScopeSize();
+            applyZoomFov();
         }
 
         // options menu revert / restore defaults copy a whole bank over the live group
@@ -195,6 +303,9 @@ namespace hudfix
         const auto set = reinterpret_cast<SetFloatFn>(OFF_SettingsGroup_setFloat);
         set(group, SCALE_AUTO_KEY, g_settings.autoScale ? 1.0f : 0.0f);
         set(group, SCALE_KEY, static_cast<float>(g_settings.scale));
+        set(group, SIGHT_ZOOM_KEY, static_cast<float>(g_settings.sightZoom));
+        set(group, VEHICLE_BRIGHTNESS_KEY, static_cast<float>(g_settings.vehicleBrightness));
+        set(group, TICKET_PANEL_KEY, g_settings.removeTicketPanel ? 1.0f : 0.0f);
 
         for (int i = 0; i < ElementCount; ++i)
         {
@@ -203,6 +314,11 @@ namespace hudfix
                 set(group, OPACITY_KEYS[i], static_cast<float>(g_settings.opacity[i]));
             if (SCOPED_KEYS[i])
                 set(group, SCOPED_KEYS[i], static_cast<float>(g_settings.scoped[i]));
+        }
+        for (int i = 0; i < ColorSlotCount; ++i)
+        {
+            set(group, COLOR_KEYS[i], static_cast<float>(g_settings.color[i]));
+            set(group, CUSTOM_COLOR_KEYS[i], static_cast<float>(g_settings.customColor[i]));
         }
 
         reinterpret_cast<GroupChangedFn>(OFF_ProfileOptions_groupChanged)(game, GAMEPLAY_GROUP);
@@ -216,6 +332,19 @@ namespace hudfix
     float elementOpacity(Element element)
     {
         return g_settings.opacity[element] / 100.0f;
+    }
+
+    const Color* slotColor(ColorSlot slot)
+    {
+        const int index = g_settings.color[slot];
+        if (index == CUSTOM_COLOR)
+        {
+            static Color custom[ColorSlotCount];
+            const int rgb = g_settings.customColor[slot];
+            custom[slot] = { "CUSTOM", ((rgb >> 16) & 0xFF) / 255.0f, ((rgb >> 8) & 0xFF) / 255.0f, (rgb & 0xFF) / 255.0f };
+            return &custom[slot];
+        }
+        return index > 0 && index < COLOR_COUNT ? &COLORS[index] : nullptr;
     }
 
     bool widgetGroup(const char* assetName, WidgetGroup& out)
