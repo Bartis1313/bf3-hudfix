@@ -43,7 +43,9 @@ namespace hudfix
             Scoped,
             Color,
             Brightness,
-            TicketPanel
+            TicketPanel,
+            UniformAiming,
+            ZoomSensitivity
         };
 
         enum Tab
@@ -89,6 +91,8 @@ namespace hudfix
             { "HudFixKillLogOpacity", "KILL LOG OPACITY", Kind::Opacity, KillLog, TabHud },
             { "HudFixScoreMessages", "SCORE POPUP SIZE", Kind::Element, ScoreMessages, TabHud },
             { "HudFixScoreMessagesOpacity", "SCORE POPUP OPACITY", Kind::Opacity, ScoreMessages, TabHud },
+            { "HudFixAwards", "AWARD SIZE", Kind::Element, Awards, TabHud },
+            { "HudFixAwardsOpacity", "AWARD OPACITY", Kind::Opacity, Awards, TabHud },
             { "HudFixChat", "CHAT SIZE", Kind::Element, Chat, TabHud },
             { "HudFixChatOpacity", "CHAT OPACITY", Kind::Opacity, Chat, TabHud },
             { "HudFixCommoRose", "COMMO ROSE SIZE", Kind::Element, CommoRose, TabHud },
@@ -99,6 +103,8 @@ namespace hudfix
             { "HudFixScopeColor", "SIGHT COLOR", Kind::Color, SightColor, TabAim },
             { "HudFixScopeSize", "SCOPE SIZE", Kind::Element, Scope, TabAim },
             { "HudFixSightZoom", "SIGHT ZOOM", Kind::SightZoom, -1, TabAim },
+            { "HudFixUniformAiming", "UNIFORM AIMING", Kind::UniformAiming, -1, TabAim },
+            { "HudFixZoomSensitivity", "ZOOM SENSITIVITY", Kind::ZoomSensitivity, -1, TabAim },
             { "HudFixHitMarkers", "HIT MARKER SIZE", Kind::Element, HitMarkers, TabAim },
             { "HudFixHitMarkersColor", "HIT MARKER COLOR", Kind::Color, HitColor, TabAim },
             { "HudFixHeadshotMarkers", "HEADSHOT SIZE", Kind::Element, HeadshotMarkers, TabAim },
@@ -164,6 +170,7 @@ namespace hudfix
         FakeComponentData g_fakeData{ };
 
         int g_tab = TabHud;
+        int g_previousTab = TabHud; // its rows are hidden on the tab change
         int g_tabKeys[TabCount];
         int g_tabKey = 0;
         bool g_tabChanged = false;
@@ -234,7 +241,10 @@ namespace hudfix
             {
             case Kind::Auto:
             case Kind::TicketPanel:
+            case Kind::UniformAiming:
                 return 2;
+            case Kind::ZoomSensitivity:
+                return (ZOOM_SENSITIVITY_MAX - ZOOM_SENSITIVITY_MIN) / ZOOM_SENSITIVITY_STEP + 1;
             case Kind::SightZoom:
                 return SightZoomCount;
             case Kind::Scale:
@@ -264,6 +274,8 @@ namespace hudfix
                 return SCOPED_MIN + index * ELEMENT_STEP;
             case Kind::Brightness:
                 return VEHICLE_BRIGHTNESS_MIN + index * ELEMENT_STEP;
+            case Kind::ZoomSensitivity:
+                return ZOOM_SENSITIVITY_MIN + index * ZOOM_SENSITIVITY_STEP;
             default:
                 return ELEMENT_MIN + index * ELEMENT_STEP;
             }
@@ -277,6 +289,10 @@ namespace hudfix
                 return settings().autoScale ? 1 : 0;
             case Kind::TicketPanel:
                 return settings().removeTicketPanel ? 1 : 0;
+            case Kind::UniformAiming:
+                return settings().uniformAiming ? 1 : 0;
+            case Kind::ZoomSensitivity:
+                return std::clamp((settings().zoomSensitivity - ZOOM_SENSITIVITY_MIN + ZOOM_SENSITIVITY_STEP / 2) / ZOOM_SENSITIVITY_STEP, 0, itemCount(row) - 1);
             case Kind::SightZoom:
                 return std::clamp(settings().sightZoom, 0, itemCount(row) - 1);
             case Kind::Scale:
@@ -316,10 +332,11 @@ namespace hudfix
         }
 
         // sub_906A70: key, Highlighted, SubItems {Index, Label}
+        constexpr size_t SCRATCH_SIZE = 0x100000; // test, if crash at alloc, then this is the cause
+
         void fillRow(const Row& row, fb::UIDataValue* value)
         {
-            // this is just to not get alloc issues
-            thread_local std::unique_ptr<char[]> scratch(new char[0x10000]);
+            thread_local std::unique_ptr<char[]> scratch(new char[SCRATCH_SIZE]);
             fb::UIStackArena arena{ };
             arena.m_vtable = reinterpret_cast<void*>(OFF_vt_UIStackArena);
             arena.m_refCount = 1;
@@ -333,7 +350,7 @@ namespace hudfix
             for (int i = 0; i < count; ++i)
             {
                 char label[32], index[8];
-                if (row.kind == Kind::Auto || row.kind == Kind::TicketPanel)
+                if (row.kind == Kind::Auto || row.kind == Kind::TicketPanel || row.kind == Kind::UniformAiming)
                     std::snprintf(label, sizeof(label), "%s", i ? "ID_M_OPTIONS_YES" : "ID_M_OPTIONS_NO");
                 else if (row.kind == Kind::Color)
                     std::snprintf(label, sizeof(label), "%s", i ? "CUSTOM" : "DEFAULT");
@@ -350,6 +367,14 @@ namespace hudfix
             setInt(value, "Highlighted", itemOfSetting(row));
             reinterpret_cast<SetMemberFn>(OFF_UIDataValue_setMember)(value, "SubItems", &items);
             reinterpret_cast<DestroyFn>(OFF_UIDataValue_destroy)(&items);
+
+            static size_t mostUsed = 0;
+            const size_t used = static_cast<size_t>(arena.m_cursor - scratch.get());
+            if (used > mostUsed)
+            {
+                mostUsed = used;
+                log("{}: {} items took {} of {} arena bytes", row.source, count, used, SCRATCH_SIZE);
+            }
         }
 
         int selectedIndex(const fb::UIDataValue* value)
@@ -370,6 +395,8 @@ namespace hudfix
             const int index = std::clamp(selectedIndex(value), 0, TabCount - 1);
             log("{} tab {} (value type {})", HUD_TABS_NAME, TAB_NAMES[index], value->m_type);
             g_tabChanged = index != g_tab;
+            if (g_tabChanged)
+                g_previousTab = g_tab;
             g_tab = index;
             std::snprintf(g_tabSelected, sizeof(g_tabSelected), "%d", index);
         }
@@ -384,6 +411,14 @@ namespace hudfix
                 break;
             case Kind::TicketPanel:
                 settings().removeTicketPanel = index == 1;
+                break;
+            case Kind::UniformAiming:
+                settings().uniformAiming = index == 1;
+                applyZoomFov();
+                break;
+            case Kind::ZoomSensitivity:
+                settings().zoomSensitivity = percentOfItem(row, index);
+                applyZoomFov();
                 break;
             case Kind::SightZoom:
                 settings().sightZoom = index;
@@ -838,10 +873,13 @@ namespace hudfix
         if (!system)
             return;
 
-        for (const int key : g_tabKeys)
-            vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, key, false);
+        vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, g_tabKeys[g_previousTab], false);
+        vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, g_tabKeys[g_tab], false);
         for (const Row& row : g_rows)
-            vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, row.key, false);
+        {
+            if (row.tab == g_previousTab || row.tab == g_tab)
+                vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, row.key, false);
+        }
         log("{} page {}", HUD_LIST_NAME, TAB_NAMES[g_tab]);
     }
 

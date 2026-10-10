@@ -123,7 +123,9 @@ namespace fb
 	{
 	public:
 		float m_fieldOfView; //0x0008 55 on the unzoomed level
-		char _0x000C[0x4E];
+		float m_dispersionMultiplier; //0x000C
+		float m_lookSpeedMultiplier; //0x0010 type info field table 0x2436F48
+		char _0x0014[0x46];
 		bool m_allowFieldOfViewScaling; //0x005A
 		char _0x005B[0x1];
 	};//Size=0x005C

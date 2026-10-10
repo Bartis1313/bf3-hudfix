@@ -38,6 +38,8 @@ namespace hudfix
         constexpr const char* SCALE_AUTO_KEY = "HudFixAuto";
         constexpr const char* SCALE_KEY = "HudFixScale";
         constexpr const char* SIGHT_ZOOM_KEY = "HudFixSightZoom";
+        constexpr const char* UNIFORM_AIMING_KEY = "HudFixUniformAiming";
+        constexpr const char* ZOOM_SENSITIVITY_KEY = "HudFixZoomSensitivity";
         constexpr const char* VEHICLE_BRIGHTNESS_KEY = "HudFixVehicleBrightness";
         constexpr const char* TICKET_PANEL_KEY = "HudFixRemoveTicketPanel";
         constexpr const char* ELEMENT_KEYS[ElementCount] = 
@@ -64,7 +66,8 @@ namespace hudfix
             "HudFixVehicleCrosshair",
             "HudFixVehicleHud",
             "HudFixChaseCrosshair",
-            "HudFixScoreMessages"
+            "HudFixScoreMessages",
+            "HudFixAwards"
         };
         constexpr const char* OPACITY_KEYS[ElementCount] =
         {
@@ -90,7 +93,8 @@ namespace hudfix
             "HudFixVehicleCrosshairOpacity",
             "HudFixVehicleHudOpacity",
             "HudFixChaseCrosshairOpacity",
-            "HudFixScoreMessagesOpacity"
+            "HudFixScoreMessagesOpacity",
+            "HudFixAwardsOpacity"
         };
         constexpr const char* SCOPED_KEYS[ElementCount] =
         {
@@ -145,6 +149,18 @@ namespace hudfix
         {
             const char* asset;
             WidgetGroup group;
+        };
+
+        // widgets of a shared asset grouped apart by their instance in the screen
+        struct InstanceGroup
+        {
+            const char* asset;
+            const char* instance;
+            WidgetGroup group;
+        };
+        constexpr InstanceGroup UI_INSTANCES[] =
+        {
+            { "UI/Assets/HudMessage", "HudMessage_04", { Awards, Awards } }, // RewardMessage: ribbons and medals
         };
 
         constexpr AssetGroup UI_ASSETS[] = 
@@ -216,6 +232,11 @@ namespace hudfix
             sync(SCALE_KEY, g_settings.scale);
 
             sync(SIGHT_ZOOM_KEY, g_settings.sightZoom);
+            int uniformAiming = g_settings.uniformAiming ? 1 : 0;
+            sync(UNIFORM_AIMING_KEY, uniformAiming);
+            g_settings.uniformAiming = uniformAiming != 0;
+            sync(ZOOM_SENSITIVITY_KEY, g_settings.zoomSensitivity);
+            g_settings.zoomSensitivity = std::clamp(g_settings.zoomSensitivity, ZOOM_SENSITIVITY_MIN, ZOOM_SENSITIVITY_MAX);
             g_settings.sightZoom = std::clamp(g_settings.sightZoom, 0, SightZoomCount - 1);
             sync(VEHICLE_BRIGHTNESS_KEY, g_settings.vehicleBrightness);
             g_settings.vehicleBrightness = std::clamp(g_settings.vehicleBrightness, VEHICLE_BRIGHTNESS_MIN, VEHICLE_BRIGHTNESS_MAX);
@@ -304,6 +325,8 @@ namespace hudfix
         set(group, SCALE_AUTO_KEY, g_settings.autoScale ? 1.0f : 0.0f);
         set(group, SCALE_KEY, static_cast<float>(g_settings.scale));
         set(group, SIGHT_ZOOM_KEY, static_cast<float>(g_settings.sightZoom));
+        set(group, UNIFORM_AIMING_KEY, g_settings.uniformAiming ? 1.0f : 0.0f);
+        set(group, ZOOM_SENSITIVITY_KEY, static_cast<float>(g_settings.zoomSensitivity));
         set(group, VEHICLE_BRIGHTNESS_KEY, static_cast<float>(g_settings.vehicleBrightness));
         set(group, TICKET_PANEL_KEY, g_settings.removeTicketPanel ? 1.0f : 0.0f);
 
@@ -347,8 +370,16 @@ namespace hudfix
         return index > 0 && index < COLOR_COUNT ? &COLORS[index] : nullptr;
     }
 
-    bool widgetGroup(const char* assetName, WidgetGroup& out)
+    bool widgetGroup(const char* assetName, WidgetGroup& out, const char* instanceName)
     {
+        for (const InstanceGroup& entry : UI_INSTANCES)
+        {
+            if (instanceName && equalsNoCase(entry.asset, assetName) && equalsNoCase(entry.instance, instanceName))
+            {
+                out = entry.group;
+                return true;
+            }
+        }
         for (const AssetGroup& entry : UI_ASSETS)
         {
             if (equalsNoCase(entry.asset, assetName))

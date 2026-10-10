@@ -36,6 +36,7 @@ namespace hudfix
         VehicleHud, // the other vehicle widgets, each grown around its own origin, parts ActionScript moves (horizon, velocity vector) keep their offsets
         ChaseCrosshair, // the 3rd person (chase cam) vehicle crosshair
         ScoreMessages, // the score popup in the middle like enemy killed x points...
+        Awards, // RewardMessage
         ElementCount
     };
 
@@ -56,6 +57,8 @@ namespace hudfix
     {
         bool autoScale = true; // s = min(w/1280, h/720)
         int sightZoom = 0;
+        bool uniformAiming = false;
+        int zoomSensitivity = 100;
         int vehicleBrightness = 100; // percent of the stock vehicle HUD's brightness a vehicle color gets
         bool removeTicketPanel = false; // no panel behind the tickets: on foot it ends at the minimap, the air vehicles' is hidden
         int scale = 100; // percent, used when autoScale is off
@@ -109,6 +112,10 @@ namespace hudfix
     };
     constexpr const char* SIGHT_ZOOM_NAMES[SightZoomCount] = { "GAME", "SCALED", "OFF" };
 
+    constexpr int ZOOM_SENSITIVITY_MIN = 10;
+    constexpr int ZOOM_SENSITIVITY_MAX = 300;
+    constexpr int ZOOM_SENSITIVITY_STEP = 5;
+
     constexpr int VEHICLE_BRIGHTNESS_MIN = 50;
     constexpr int VEHICLE_BRIGHTNESS_MAX = 200;
 
@@ -148,7 +155,7 @@ namespace hudfix
         Element element;
         Element layout;
     };
-    bool widgetGroup(const char* assetName, WidgetGroup& out);
+    bool widgetGroup(const char* assetName, WidgetGroup& out, const char* instanceName = nullptr);
 
     constexpr const char* HUD_LIST_NAME = "HudFixList";
     constexpr const char* HUD_TABS_NAME = "HudFixTabs"; // the list's sub-tabs, a TabBar_01 copy above it

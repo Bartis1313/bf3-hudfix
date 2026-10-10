@@ -1872,8 +1872,9 @@ namespace hudfix
                         continue;
 
                     WidgetGroup group;
-                    if (!widgetGroup(widget->m_WidgetAsset->m_Name, group))
+                    if (!widgetGroup(widget->m_WidgetAsset->m_Name, group, widget->m_InstanceName))
                         continue;
+
                     if (group.element == HitMarkers) // the hit indicator looks like what the last hit did
                         group.element = group.layout = g_hitMarker;
                     // chase cam screens hold the vehicle crosshair alone; the 1st person one sits in the vehicle HUD

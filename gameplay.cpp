@@ -1,6 +1,8 @@
 #include "hudfix.h"
 
+#include <cmath>
 #include <mutex>
+#include <numbers>
 #include <unordered_map>
 
 namespace hudfix
@@ -25,9 +27,14 @@ namespace hudfix
         {
             float fov;
             bool scaling;
+            float lookSpeed;
             float hipFov;
             bool hipScaling;
+            float hipLookSpeed;
         };
+
+        float g_aimingFovMultiplier = 1.0f;
+        float g_sliderFovMultiplier = 1.0f;
         std::unordered_map<fb::ZoomLevelData*, ZoomOriginal> g_zoomOriginals;
         const fb::SoldierAimingSimulationData* g_zoomPatched = nullptr; // the weapon data last patched
         std::mutex g_zoomLock;
@@ -53,22 +60,50 @@ namespace hudfix
             _this->onHealthHasChanged(soldier->m_health);
         }
 
+        // the fov slider's multiplier
+        float sliderFovMultiplier()
+        {
+            const auto context = *reinterpret_cast<const unsigned char* const*>(OFF_g_clientGameContext);
+            void* owner = context ? *reinterpret_cast<void* const*>(context + 0x10) : nullptr;
+            return owner ? reinterpret_cast<float(__thiscall*)(void*)>(OFF_fovMultiplier)(owner) : 1.0f;
+        }
+
+        // the camera's fov at a zoom level
+        double cameraFov(float fov, bool scaling)
+        {
+            return g_aimingFovMultiplier * fov * (scaling ? g_sliderFovMultiplier : 1.0f);
+        }
+
+        float uniformLookSpeed(const fb::ZoomLevelData* zoom, const ZoomOriginal& original)
+        {
+            constexpr double HALF_ANGLE = std::numbers::pi / 360.0;
+            const double aimed = std::tan(cameraFov(zoom->m_fieldOfView, zoom->m_allowFieldOfViewScaling) * HALF_ANGLE);
+            const double hip = std::tan(cameraFov(original.hipFov, original.hipScaling) * HALF_ANGLE);
+            return hip > 0.0 ? static_cast<float>(original.hipLookSpeed * aimed / hip) : original.lookSpeed;
+        }
+
         void applyZoomLevel(fb::ZoomLevelData* zoom, const ZoomOriginal& original)
         {
             const int mode = settings().sightZoom;
-            if (mode == SightZoomOff && original.fov >= SIGHT_FOV)
-            {
-                zoom->m_fieldOfView = original.hipFov;
-                zoom->m_allowFieldOfViewScaling = original.hipScaling;
-                return;
-            }
-            zoom->m_fieldOfView = original.fov;
-            zoom->m_allowFieldOfViewScaling = original.scaling || mode == SightZoomScaled;
+            const bool hipfire = mode == SightZoomOff && original.fov >= SIGHT_FOV;
+            zoom->m_fieldOfView = hipfire ? original.hipFov : original.fov;
+            zoom->m_allowFieldOfViewScaling = hipfire ? original.hipScaling : original.scaling || mode == SightZoomScaled;
+            const float lookSpeed = settings().uniformAiming ? uniformLookSpeed(zoom, original) : original.lookSpeed;
+            zoom->m_lookSpeedMultiplier = lookSpeed * settings().zoomSensitivity / 100.0f;
         }
 
         void __fastcall hkUpdateZoom(fb::ClientSoldierAimingSimulation* _this, void*, int a, int b, int c, int d)
         {
             const fb::SoldierAimingSimulationData* data = _this->m_data;
+            const float aiming = _this->m_fovMultiplier > 0.0f ? _this->m_fovMultiplier : 1.0f;
+            const float slider = sliderFovMultiplier();
+            if (aiming != g_aimingFovMultiplier || slider != g_sliderFovMultiplier)
+            {
+                std::lock_guard lock(g_zoomLock);
+                g_aimingFovMultiplier = aiming;
+                g_sliderFovMultiplier = slider;
+                g_zoomPatched = nullptr;
+            }
             if (data && data != g_zoomPatched && data->m_zoomLevels.size())
             {
                 std::lock_guard lock(g_zoomLock);
@@ -80,11 +115,12 @@ namespace hudfix
                     if (!zoom)
                         continue;
 
-                    const ZoomOriginal original{ zoom->m_fieldOfView, zoom->m_allowFieldOfViewScaling,
-                        hip ? hip->m_fieldOfView : DEFAULT_FOV, hip ? hip->m_allowFieldOfViewScaling : true };
+                    const ZoomOriginal original{ zoom->m_fieldOfView, zoom->m_allowFieldOfViewScaling, zoom->m_lookSpeedMultiplier,
+                        hip ? hip->m_fieldOfView : DEFAULT_FOV, hip ? hip->m_allowFieldOfViewScaling : true, hip ? hip->m_lookSpeedMultiplier : 1.0f };
                     const auto [entry, added] = g_zoomOriginals.try_emplace(zoom, original);
                     if (added)
-                        log("zoom level {} fov {:.1f} scaling {}, hipfire {:.1f} scaling {}", i, original.fov, original.scaling, original.hipFov, original.hipScaling);
+                        log("zoom level {} fov {:.1f} scaling {} look speed {:.3f}, hipfire {:.1f} scaling {} look speed {:.3f}", i, original.fov,
+                            original.scaling, original.lookSpeed, original.hipFov, original.hipScaling, original.hipLookSpeed);
                     applyZoomLevel(zoom, entry->second);
                 }
             }
@@ -123,7 +159,8 @@ namespace hudfix
         for (const auto& [zoom, original] : g_zoomOriginals)
             applyZoomLevel(zoom, original);
         g_zoomPatched = nullptr;
-        log("sight zoom {} on {} zoom levels", SIGHT_ZOOM_NAMES[settings().sightZoom], g_zoomOriginals.size());
+        log("sight zoom {}, uniform aiming {}, zoom sensitivity {}% on {} zoom levels", SIGHT_ZOOM_NAMES[settings().sightZoom], settings().uniformAiming,
+            settings().zoomSensitivity, g_zoomOriginals.size());
     }
 
     void installGameplayHooks()

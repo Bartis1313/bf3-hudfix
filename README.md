@@ -35,6 +35,7 @@ The options in the **Gameplay** tab:
 - hit markers, separately for a hit, a headshot and a kill
 - kill log
 - score popup (the score counter and the messages in the middle, like ENEMY KILLED 100)
+- award popups (ribbons and medals)
 - team and enemy nametags (separately)
 - team and enemy health bars (separately, on top of their nametag size)
 - man down / revive icons (on top of the team nametag size)
@@ -63,6 +64,8 @@ tickets instead (on foot it ends at the minimap, in air vehicles it is hidden).
   - **SCALED**: the zoom levels follow the field of view slider
   - **OFF**: iron sights, red dots, holos and other unmagnified sights keep the hipfire field of view, so the world no
     longer shrinks when you aim; magnified scopes still zoom as in the game
+- **Uniform aiming** crosshair sens = aiming sens
+- **Zoom sensitivity** (10% - 300%, 5% steps): a multiplier on the aiming and scoped sensitivity, on top of either
 - **Sight color** for red dot and holo dots and the lit marks of scopes (the ACOG's triangle); the lines of magnified
   scopes keep their own
 - **Scope size**: the size of the sight's and scope's reticle
