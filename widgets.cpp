@@ -623,7 +623,7 @@ namespace hudfix
         {
             fb::GFxMovieView* movie = nullptr;
             std::string path; // the picker clip
-            std::string listPath; // the HUD list
+            std::string listPath; // the shown HUD list
             std::string mainListPath; // List_01, the panel goes under its rows
             double x = 0.0, width = 0.0, listY = 0.0;
             int slot = -1; // color slot shown, -1 hidden
@@ -1082,7 +1082,7 @@ namespace hudfix
                 log("{}: clip NOT created", PICKER_NAME);
                 return;
             }
-            g_picker = Picker{ movie, parent + "." + PICKER_NAME, parent + "." + HUD_LIST_NAME, parent + ".List_01", x, width, listY };
+            g_picker = Picker{ movie, parent + "." + PICKER_NAME, parent + "." + HUD_LIST_NAMES[hudTab()], parent + ".List_01", x, width, listY };
 
             showPicker(false);
             log("{}: clip at x {:.0f}, {:.0f} wide", PICKER_NAME, x, width);
@@ -1445,51 +1445,89 @@ namespace hudfix
             pickColor(slot, hsvToRgb(p.h, p.s, p.v), false);
         }
 
-        // the Gameplay movie has no clip for the added list
+        int g_shownHudList = -1; // the HUD list shown, -1 before the lists exist
+        // ghetto to prevent artifacts
+        constexpr int HUD_LIST_HOLD_FRAMES = 120;
+        int g_hudListHold = 0;
+
         void createHudListClip(fb::GFxMovieView* movie, fb::UIScreenData* screen)
         {
             constexpr double kGap = 18.0;
             const std::string parent = std::string(screen->m_instanceName) + ".instance1";
-            Clip holder, main, created;
-            fb::GFxDisplayInfo mainInfo{ }, info{ };
-            double depth = 0.0, mainBounds[4], ownBounds[4];
-            fb::GFxValue args[2]{ };
-            args[0].m_type = STRING;
-            args[0].m_data = const_cast<char*>(HUD_LIST_NAME);
-            args[1].m_type = NUMBER;
-            bool made = holder.resolve(movie, parent.c_str()) && holder.invoke("getNextHighestDepth", nullptr, 0, &depth)
-                && main.resolve(movie, (parent + ".List_01").c_str()) && main.read(&mainInfo) && main.localBounds(mainBounds)
-                && (args[1].m_number = depth, main.invoke("duplicateMovieClip", args, 2))
-                && created.resolve(movie, (parent + "." + HUD_LIST_NAME).c_str()) && created.read(&info) && created.localBounds(ownBounds);
-            if (made)
+            Clip holder, main;
+            fb::GFxDisplayInfo mainInfo{ };
+            double mainBounds[4];
+            bool made = holder.resolve(movie, parent.c_str()) && main.resolve(movie, (parent + ".List_01").c_str()) && main.read(&mainInfo)
+                && main.localBounds(mainBounds);
+            // List_01's mask spans x -5..width+5 and y 0..height
+            const double left = mainInfo.m_x + (mainBounds[2] - 5.0) + kGap;
+            const double width = -mainInfo.m_x - left;
+            const double tabs = made ? createHudTabsClip(movie, screen, holder, parent, left, mainInfo.m_y, width) : 0.0;
+            const double height = mainBounds[3] - tabs;
+            for (int tab = 0; made && tab < HUD_LIST_COUNT; ++tab)
             {
-                // List_01's mask spans x -5..width+5 and y 0..height
-                const double left = mainInfo.m_x + (mainBounds[2] - 5.0) + kGap;
-                const double width = -mainInfo.m_x - left;
-                const double tabs = createHudTabsClip(movie, screen, holder, parent, left, mainInfo.m_y, width);
-                const double height = mainBounds[3] - tabs;
+                Clip created;
+                fb::GFxDisplayInfo info{ };
+                double depth = 0.0, ownBounds[4];
+                fb::GFxValue args[2]{ };
+                args[0].m_type = STRING;
+                args[0].m_data = const_cast<char*>(HUD_LIST_NAMES[tab]);
+                args[1].m_type = NUMBER;
+                made = holder.invoke("getNextHighestDepth", nullptr, 0, &depth) && (args[1].m_number = depth, main.invoke("duplicateMovieClip", args, 2))
+                    && created.resolve(movie, (parent + "." + HUD_LIST_NAMES[tab]).c_str()) && created.read(&info) && created.localBounds(ownBounds);
+                if (!made)
+                    break;
+
                 info.m_x = left;
                 info.m_y = mainInfo.m_y + tabs;
                 info.m_xScale = width / (ownBounds[2] - ownBounds[0]) * 100.0;
                 info.m_yScale = height / (ownBounds[3] - ownBounds[1]) * 100.0;
-                info.m_varsSet = 0x1 | 0x2 | 0x8 | 0x10;
+                info.m_visible = tab == hudTab();
+                info.m_varsSet = 0x1 | 0x2 | 0x8 | 0x10 | VARS_VISIBLE;
                 created.write(&info);
                 made = created.invoke("onLoad", nullptr, 0);
-                log("{}: clip on {} at ({:.0f}, {:.0f}) {:.0f} x {:.0f}, depth {:.0f}", HUD_LIST_NAME, screen->m_instanceName, left, info.m_y, width, height, depth);
-                if (made)
-                    createPicker(movie, holder, parent, mainInfo.m_x, mainBounds[2] - 5.0, mainInfo.m_y);
-            }
-            if (made)
-            {
                 fb::GFxValue none{ };
                 none.m_type = 1U;
                 created.set("onLoad", none);
+                log("{}: clip on {} at ({:.0f}, {:.0f}) {:.0f} x {:.0f}, depth {:.0f}", HUD_LIST_NAMES[tab], screen->m_instanceName, left, info.m_y, width, height, depth);
+            }
+            if (made)
+            {
+                g_shownHudList = hudTab();
+                g_hudListHold = HUD_LIST_HOLD_FRAMES;
+                createPicker(movie, holder, parent, mainInfo.m_x, mainBounds[2] - 5.0, mainInfo.m_y);
                 return;
             }
 
-            log("{}: clip NOT created on {}", HUD_LIST_NAME, screen->m_instanceName);
-            removeWidget(screen, HUD_LIST_NAME);
+            log("HUD lists: clips NOT created on {}", screen->m_instanceName);
+            for (const char* name : HUD_LIST_NAMES)
+                removeWidget(screen, name);
             removeWidget(screen, HUD_TABS_NAME);
+        }
+
+        // the shown tab's list visible, the others hidden with their rows kept
+        void showHudList(fb::GFxMovieView* movie)
+        {
+            Picker& p = g_picker;
+            const int tab = hudTab();
+            if (movie != p.movie || p.path.empty())
+                return;
+            if (g_shownHudList != tab)
+                g_hudListHold = HUD_LIST_HOLD_FRAMES;
+            if (!g_hudListHold)
+                return;
+
+            --g_hudListHold;
+            const std::string parent = p.path.substr(0, p.path.rfind('.'));
+            for (int i = 0; i < HUD_LIST_COUNT; ++i)
+            {
+                Clip list;
+                fb::GFxDisplayInfo info{ };
+                if (list.resolve(movie, (parent + "." + HUD_LIST_NAMES[i]).c_str()) && list.read(&info) && info.m_visible != (i == tab))
+                    setVisible(list, i == tab);
+            }
+            p.listPath = parent + "." + HUD_LIST_NAMES[tab];
+            g_shownHudList = tab;
         }
 
         struct WidgetContext
@@ -2649,7 +2687,7 @@ namespace hudfix
                 if (!*s || std::strcmp((*s)->m_instanceName, name) != 0)
                     continue;
 
-                if (hasWidget(*s, HUD_LIST_NAME) && _this->m_rootMovie)
+                if (hasWidget(*s, HUD_LIST_NAMES[0]) && _this->m_rootMovie)
                     createHudListClip(_this->m_rootMovie->m_movieView, *s);
             }
             oInitializeScreen(_this, name);
@@ -2659,6 +2697,7 @@ namespace hudfix
         {
             const float next = oAdvance(_this, dt, catchUp);
             fitHudTabs(_this);
+            showHudList(_this);
             updatePicker(_this);
             measureWidgets(_this);
             updateScopeColor();

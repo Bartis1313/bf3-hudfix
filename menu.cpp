@@ -57,7 +57,6 @@ namespace hudfix
             TabCount
         };
         constexpr const char* TAB_NAMES[TabCount] = { "HUD", "AIM", "TAGS", "VEHICLE" };
-        constexpr const char* TAB_SOURCES[TabCount] = { "HudFixShowHud", "HudFixShowAim", "HudFixShowTags", "HudFixShowVehicle" };
         constexpr const char* TAB_BAR_TABS = "HUD;AIM;TAGS;VEHICLE"; // TabBar "Tabs" property
         constexpr const char* TAB_SOURCE = "HudFixTab"; // what the tab bar's Released writes
         constexpr const char* MAIN_TAB_BAR = "TabBar_01";
@@ -163,27 +162,35 @@ namespace hudfix
         {
             unsigned int unk;
             unsigned int count;
-            const char* names[ROW_COUNT + TabCount + 1];
+            const char* names[ROW_COUNT + 1];
         };
 
         SourceArray g_sources{ };
         FakeComponentData g_fakeData{ };
 
         int g_tab = TabHud;
-        int g_previousTab = TabHud; // its rows are hidden on the tab change
-        int g_tabKeys[TabCount];
         int g_tabKey = 0;
-        bool g_tabChanged = false;
         int g_pickedRowKey = 0;
         char g_tabSelected[8] = "0";
+
+        static_assert(HUD_LIST_COUNT == TabCount, "a HUD list per tab");
+
+        // a connection into List_01 copied for the HUD lists: it enters the shown one (enterHudList)
+        struct ListEntry
+        {
+            fb::UINodeConnection* connection;
+            fb::UINodePort* mainPort; // the List_01 port it targeted
+        };
 
         struct HudList
         {
             const fb::WidgetNode* main;
             const fb::UINestedListDataBinding* mainBinding;
             const fb::NestedList* templateRow;
-            fb::WidgetNode* list;
-            fb::UINestedListDataBinding* binding;
+            fb::WidgetNode* lists[TabCount];
+            fb::UINestedListDataBinding* bindings[TabCount];
+            std::vector<std::pair<fb::UINodePort*, fb::UINodePort*>> ports[TabCount]; // List_01's port -> the list's copy
+            std::vector<ListEntry> entries;
             const fb::WidgetNode* mainTabs;
             fb::WidgetNode* tabs;
             const fb::DataSetNode* setValue;
@@ -225,14 +232,9 @@ namespace hudfix
                 g_rows[i].key = dataKey(g_rows[i].source);
                 g_sources.names[i] = g_rows[i].source;
             }
-            for (int i = 0; i < TabCount; ++i)
-            {
-                g_tabKeys[i] = dataKey(TAB_SOURCES[i]);
-                g_sources.names[ROW_COUNT + i] = TAB_SOURCES[i];
-            }
             g_tabKey = dataKey(TAB_SOURCE);
-            g_sources.names[ROW_COUNT + TabCount] = TAB_SOURCE;
-            g_sources.count = static_cast<unsigned int>(ROW_COUNT + TabCount + 1);
+            g_sources.names[ROW_COUNT] = TAB_SOURCE;
+            g_sources.count = static_cast<unsigned int>(ROW_COUNT + 1);
         }
 
         int itemCount(const Row& row)
@@ -390,15 +392,30 @@ namespace hudfix
             return text ? std::atoi(text) : 0;
         }
 
+        // the connections into List_01 copied for the HUD lists go to tab's list
+        void enterHudList(int tab)
+        {
+            HudList& h = g_hudList;
+            for (ListEntry& entry : h.entries)
+            {
+                for (const auto& [from, to] : h.ports[tab])
+                {
+                    if (from == entry.mainPort)
+                    {
+                        entry.connection->m_TargetNode = h.lists[tab];
+                        entry.connection->m_TargetPort = to;
+                    }
+                }
+            }
+        }
+
         void setTab(const fb::UIDataValue* value)
         {
             const int index = std::clamp(selectedIndex(value), 0, TabCount - 1);
             log("{} tab {} (value type {})", HUD_TABS_NAME, TAB_NAMES[index], value->m_type);
-            g_tabChanged = index != g_tab;
-            if (g_tabChanged)
-                g_previousTab = g_tab;
             g_tab = index;
             std::snprintf(g_tabSelected, sizeof(g_tabSelected), "%d", index);
+            enterHudList(index);
         }
 
         void applyRow(const Row& row, const fb::UIDataValue* value)
@@ -469,14 +486,6 @@ namespace hudfix
 
         bool __fastcall hkGetDataValue(void* _this, void*, int key, fb::UIDataValue* value)
         {
-            for (int i = 0; i < TabCount; ++i)
-            {
-                if (key == g_tabKeys[i])
-                {
-                    setBool(value, i == g_tab);
-                    return true;
-                }
-            }
             if (const Row* row = findRow(key))
             {
                 fillRow(*row, value);
@@ -554,19 +563,8 @@ namespace hudfix
             return nullptr;
         }
 
-        // a page's rows read its page key as DynamicShowList, sub_88A350 leaves a row out of the list while it reads false
-        void showOnTab(fb::NestedList& item, const Row& row, const fb::NestedList& templateRow)
-        {
-            if (row.tab < 0)
-            {
-                item.m_DynamicShowList = templateRow.m_DynamicShowList;
-                return;
-            }
-            item.m_DynamicShowList = templateRow.m_ListDataSource;
-            item.m_DynamicShowList.m_DataName = const_cast<char*>(TAB_SOURCES[row.tab]);
-            item.m_DynamicShowList.m_DataKey = g_tabKeys[row.tab];
-        }
 
+        // connections into List_01 are copied once and enter the shown list (enterHudList), those out of it per list
         void addHudList(fb::UIGraphAsset* screen, fb::WidgetNode* main)
         {
             fb::UINestedListDataBinding* mainBinding = static_cast<fb::UINestedListDataBinding*>(main->m_DataBinding);
@@ -579,82 +577,22 @@ namespace hudfix
             if (!templateRow)
                 return;
 
-            fb::UINestedListDataBinding* binding = clone(mainBinding);
-            std::vector<fb::NestedList> rows;
-            for (const Row& row : g_rows)
-            {
-                fb::NestedList item = *templateRow;
-                item.m_Label = const_cast<char*>(row.name);
-                item.m_ListDataSource.m_DataKey = row.key;
-                showOnTab(item, row, *templateRow);
-                rows.push_back(item);
-            }
-            setArray(binding->m_NestedLists, rows);
-            binding->m_ListIndex = 5; // hud list index
-            binding->m_KeepScrollOffset = true;
-            // too many rows for the List_01 mask, sent as "UseScrollBar" by sub_88A350 for mouse scrolling
-            binding->m_UseScrollBar = true;
-            // for arrow keys specifically
-            binding->m_NavigationType = fb::sendEventTopBottom;
+            HudList& h = g_hudList;
+            h.main = main;
+            h.mainBinding = mainBinding;
+            h.templateRow = templateRow;
+            // for arrow keys specifically, but this is broken
             mainBinding->m_NavigationType = fb::sendEventTopBottom;
-
-            fb::WidgetNode* list = clone(main);
-            list->m_Name = const_cast<char*>("HudFix List");
-            list->m_InstanceName = const_cast<char*>(HUD_LIST_NAME);
-            list->m_DataBinding = binding;
-            list->m_FocusIndex = -1;
-            std::vector<std::pair<fb::UINodePort*, fb::UINodePort*>> ports;
-            for (fb::Array<fb::UINodePort*>* array : { &list->m_Inputs, &list->m_Outputs })
-            {
-                std::vector<fb::UINodePort*> items = itemsOf(*array);
-                for (fb::UINodePort*& port : items)
-                {
-                    fb::UINodePort* copy = clone(port);
-                    copy->m_InstanceName = const_cast<char*>(HUD_LIST_NAME);
-                    ports.emplace_back(port, copy);
-                    port = copy;
-                }
-                setArray(*array, items);
-            }
-            const auto mapPort = [&](fb::UINodePort* port)
-                {
-                    for (const auto& [from, to] : ports)
-                    {
-                        if (from == port)
-                            return to;
-                    }
-                    return port;
-                };
 
             std::vector<fb::UINodeConnection*> connections = itemsOf(screen->m_Connections);
             const size_t original = connections.size();
-            for (size_t i = 0; i < original; ++i)
-            {
-                fb::UINodeConnection* source = connections[i];
-                if (source->m_SourceNode != main && source->m_TargetNode != main)
-                    continue;
-
-                fb::UINodeConnection* copy = clone(source);
-                if (copy->m_SourceNode == main)
-                {
-                    copy->m_SourceNode = list;
-                    copy->m_SourcePort = mapPort(copy->m_SourcePort);
-                }
-                if (copy->m_TargetNode == main)
-                {
-                    copy->m_TargetNode = list;
-                    copy->m_TargetPort = mapPort(copy->m_TargetPort);
-                }
-                connections.push_back(copy);
-            }
-
-            // down past the last main row enters the new list, up past its first row returns (Video List_01/List_02)
+            std::vector<fb::UINodeData*> nodes = itemsOf(screen->m_Nodes);
             const auto link = [&](fb::WidgetNode* from, fb::UIWidgetEventID out, fb::WidgetNode* to, fb::UIWidgetEventID in)
                 {
                     fb::UINodePort* sourcePort = portOf(from->m_Outputs, out);
                     fb::UINodePort* targetPort = portOf(to->m_Inputs, in);
                     if (!sourcePort || !targetPort || original == 0)
-                        return;
+                        return static_cast<fb::UINodeConnection*>(nullptr);
 
                     fb::UINodeConnection* copy = clone(connections.front());
                     copy->m_SourceNode = from;
@@ -663,17 +601,97 @@ namespace hudfix
                     copy->m_TargetPort = targetPort;
                     copy->m_NumScreensToPop = 0;
                     connections.push_back(copy);
+                    return copy;
                 };
-            link(main, fb::UIWidgetEventID_OnReachedBottom, list, fb::UIWidgetEventID_EnterTop);
-            link(list, fb::UIWidgetEventID_OnReachedTop, main, fb::UIWidgetEventID_EnterBottom);
+
+            size_t rowCount = 0;
+            for (int tab = 0; tab < TabCount; ++tab)
+            {
+                fb::UINestedListDataBinding* binding = clone(mainBinding);
+                std::vector<fb::NestedList> rows;
+                for (const Row& row : g_rows)
+                {
+                    if (row.tab != tab)
+                        continue;
+                    fb::NestedList item = *templateRow;
+                    item.m_Label = const_cast<char*>(row.name);
+                    item.m_ListDataSource.m_DataKey = row.key;
+                    rows.push_back(item);
+                }
+                rowCount += rows.size();
+                setArray(binding->m_NestedLists, rows);
+                binding->m_ListIndex = 5 + tab; // after the game's lists
+                binding->m_KeepScrollOffset = true;
+                // too many rows for the List_01 mask, sent as "UseScrollBar" by sub_88A350 for mouse scrolling
+                binding->m_UseScrollBar = true;
+                binding->m_NavigationType = fb::sendEventTopBottom;
+
+                fb::WidgetNode* list = clone(main);
+                list->m_Name = const_cast<char*>("HudFix List");
+                list->m_InstanceName = const_cast<char*>(HUD_LIST_NAMES[tab]);
+                list->m_DataBinding = binding;
+                list->m_FocusIndex = -1;
+                std::vector<std::pair<fb::UINodePort*, fb::UINodePort*>>& ports = h.ports[tab];
+                for (fb::Array<fb::UINodePort*>* array : { &list->m_Inputs, &list->m_Outputs })
+                {
+                    std::vector<fb::UINodePort*> items = itemsOf(*array);
+                    for (fb::UINodePort*& port : items)
+                    {
+                        fb::UINodePort* copy = clone(port);
+                        copy->m_InstanceName = const_cast<char*>(HUD_LIST_NAMES[tab]);
+                        ports.emplace_back(port, copy);
+                        port = copy;
+                    }
+                    setArray(*array, items);
+                }
+                const auto mapPort = [&](fb::UINodePort* port)
+                    {
+                        for (const auto& [from, to] : ports)
+                        {
+                            if (from == port)
+                                return to;
+                        }
+                        return port;
+                    };
+
+                for (size_t i = 0; i < original; ++i)
+                {
+                    fb::UINodeConnection* source = connections[i];
+                    const bool out = source->m_SourceNode == main, in = source->m_TargetNode == main;
+                    // into List_01 from elsewhere: one copy, for the shown list
+                    if (!(out || in) || (in && !out && tab != 0))
+                        continue;
+
+                    fb::UINodeConnection* copy = clone(source);
+                    if (out)
+                    {
+                        copy->m_SourceNode = list;
+                        copy->m_SourcePort = mapPort(copy->m_SourcePort);
+                    }
+                    if (in && out)
+                    {
+                        copy->m_TargetNode = list;
+                        copy->m_TargetPort = mapPort(copy->m_TargetPort);
+                    }
+                    else if (in)
+                        h.entries.push_back({ copy, copy->m_TargetPort });
+                    connections.push_back(copy);
+                }
+
+                // up past a list's first row returns to List_01 (Video List_01/List_02)
+                link(list, fb::UIWidgetEventID_OnReachedTop, main, fb::UIWidgetEventID_EnterBottom);
+                nodes.push_back(list);
+                h.lists[tab] = list;
+                h.bindings[tab] = binding;
+            }
+            // down past List_01's last row enters the shown list
+            if (fb::UINodeConnection* down = link(main, fb::UIWidgetEventID_OnReachedBottom, h.lists[0], fb::UIWidgetEventID_EnterTop))
+                h.entries.push_back({ down, portOf(main->m_Inputs, fb::UIWidgetEventID_EnterTop) });
+            enterHudList(g_tab);
 
             setArray(screen->m_Connections, connections);
-
-            std::vector<fb::UINodeData*> nodes = itemsOf(screen->m_Nodes);
-            nodes.push_back(list);
             setArray(screen->m_Nodes, nodes);
-            g_hudList = { main, mainBinding, templateRow, list, binding, nullptr, nullptr, nullptr, nullptr };
-            log("gameplay options: {} with {} rows, {} connections", HUD_LIST_NAME, rows.size(), connections.size() - original);
+            log("gameplay options: {} HUD lists with {} rows, {} connections", HUD_LIST_COUNT, rowCount, connections.size() - original);
         }
 
         // written to TAB_SOURCE by a copy of List_01's SetValue DataSetNode
@@ -784,25 +802,34 @@ namespace hudfix
     void linkHudList()
     {
         HudList& h = g_hudList;
-        if (!h.list || h.list->m_WidgetAsset == h.main->m_WidgetAsset)
+        if (!h.lists[0] || h.lists[0]->m_WidgetAsset == h.main->m_WidgetAsset)
             return;
 
-        h.list->m_WidgetAsset = h.main->m_WidgetAsset;
         if (h.tabs)
         {
             h.tabs->m_WidgetAsset = h.mainTabs->m_WidgetAsset;
             h.setTab->m_DataSource.m_DataCategory = h.setValue->m_DataSource.m_DataCategory;
         }
-        h.binding->m_DefaultHighlightedRow = h.mainBinding->m_DefaultHighlightedRow;
-        h.binding->m_Visibility = h.mainBinding->m_Visibility;
-        for (unsigned int i = 0; i < h.binding->m_NestedLists.size(); ++i)
+        for (int tab = 0; tab < TabCount; ++tab)
         {
-            fb::NestedList& row = h.binding->m_NestedLists.m_firstElement[i];
-            row.m_ListDataSource.m_DataCategory = h.templateRow->m_ListDataSource.m_DataCategory;
-            showOnTab(row, g_rows[i], *h.templateRow);
-            row.m_DefaultHighlighted = h.templateRow->m_DefaultHighlighted;
+            h.lists[tab]->m_WidgetAsset = h.main->m_WidgetAsset;
+            fb::UINestedListDataBinding* binding = h.bindings[tab];
+            binding->m_DefaultHighlightedRow = h.mainBinding->m_DefaultHighlightedRow;
+            binding->m_Visibility = h.mainBinding->m_Visibility;
+            for (unsigned int i = 0; i < binding->m_NestedLists.size(); ++i)
+            {
+                fb::NestedList& row = binding->m_NestedLists.m_firstElement[i];
+                row.m_ListDataSource.m_DataCategory = h.templateRow->m_ListDataSource.m_DataCategory;
+                row.m_DynamicShowList = h.templateRow->m_DynamicShowList;
+                row.m_DefaultHighlighted = h.templateRow->m_DefaultHighlighted;
+            }
         }
-        log("{} linked, widget asset {}", HUD_LIST_NAME, static_cast<const void*>(h.list->m_WidgetAsset));
+        log("{} HUD lists linked, widget asset {}", HUD_LIST_COUNT, static_cast<const void*>(h.main->m_WidgetAsset));
+    }
+
+    int hudTab()
+    {
+        return g_tab;
     }
 
     int highlightedColorSlot(int row)
@@ -865,18 +892,6 @@ namespace hudfix
         if (g_pickedRowKey && system)
             vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, g_pickedRowKey, false);
         g_pickedRowKey = 0;
-
-        if (!g_tabChanged)
-            return;
-
-        g_tabChanged = false;
-        if (!system)
-            return;
-
-        for (const Row& row : g_rows)
-            vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, row.key, false);
-
-        log("{} page {}", HUD_LIST_NAME, TAB_NAMES[g_tab]);
     }
 
     void installMenuHooks()

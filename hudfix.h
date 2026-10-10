@@ -157,11 +157,14 @@ namespace hudfix
     };
     bool widgetGroup(const char* assetName, WidgetGroup& out, const char* instanceName = nullptr);
 
-    constexpr const char* HUD_LIST_NAME = "HudFixList";
+    // a list per tab of the HUD options, all built with the page: a tab switch only shows another
+    constexpr const char* HUD_LIST_NAMES[] = { "HudFixListHud", "HudFixListAim", "HudFixListTags", "HudFixListVehicle" };
+    constexpr int HUD_LIST_COUNT = static_cast<int>(std::size(HUD_LIST_NAMES));
     constexpr const char* HUD_TABS_NAME = "HudFixTabs"; // the list's sub-tabs, a TabBar_01 copy above it
     void linkHudList();
     void updateMenu(); // UI job, every frame
-    int highlightedColorSlot(int row); // the ColorSlot of the HUD list's row at this index of its page, -1 if none
+    int hudTab(); // the HUD options tab shown, its list is HUD_LIST_NAMES[hudTab()]
+    int highlightedColorSlot(int row); // the ColorSlot of the shown HUD list's row at this index, -1 if none
     const char* colorRowName(int slot); // the label of the slot's COLOR row
     bool colorRowShown(int slot); // the slot's COLOR row is on the HUD list's current page
     void pickColor(ColorSlot slot, int rgb, bool done); // done saves it, once the mouse is released
