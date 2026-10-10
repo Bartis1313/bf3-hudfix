@@ -873,13 +873,9 @@ namespace hudfix
         if (!system)
             return;
 
-        vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, g_tabKeys[g_previousTab], false);
-        vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, g_tabKeys[g_tab], false);
         for (const Row& row : g_rows)
-        {
-            if (row.tab == g_previousTab || row.tab == g_tab)
-                vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, row.key, false);
-        }
+            vfunc::callVFunc<void, OFF_UISystem_refreshData_SLOT>(system, row.key, false);
+
         log("{} page {}", HUD_LIST_NAME, TAB_NAMES[g_tab]);
     }
 
