@@ -22,8 +22,6 @@
 #define OFF_UIScreenManager_setScreenVisible 0x0101B940 // thiscall (UIScreenData*, bool visible): "<screen>.instance1" visible through Get/SetDisplayInfo, other fields kept
 #define OFF_UIWeaponComp_onMessage 0x0091CDA0 // thiscall (const Message*), this = comp + 72: UIDamageGivenToEnemyMessage (damage float +0x28) sets the hit indicator level key 0xA5FCCBD4
 #define OFF_SoldierBulletHit_onMessage 0x0109AAB0 // thiscall (const Message*): client soldier component; BulletToSoldierComponentsHitMessage (type 0x47F6C6F0, ctor sub_1FD7220) from the bullet's own collision, BulletHitInfo at +0x30: BoneType +0x58 (1 head), ShooterPlayerId +0x5C
-#define OFF_g_clientGameContext 0x02380B58 // ClientGameContext* global
-#define OFF_ClientPlayerManager_getPlayer 0x00FDCB40 // thiscall (id) -> ClientPlayer*, null past the player count
 #define OFF_UICapturePoint_progressEpsilon 0x00948263 // disp32 of comisd xmm1, [qword_207FB70] (0.05) in sub_947C00 (vtable 0x20C3F48 slot 16 sub_94A420): |progress - last frame's| (0..100) above it pushes dirty bit 10, the last frame's +0x2C8 is stored either way
 #define OFF_UIMessageComp_onMessage 0x00933C50 // thiscall (const Message*), this = comp + 72: HUD texts, UINetworkKilledOtherPlayerMessage is the local player's kill (headshot bool +0x4C, sub_931240)
 #define OFF_UIScreenManager_initializeScreen 0x0102AAD0 // thiscall (const char* screen): the screen's WidgetNodes -> "<screen>.instance1.initializeScreen", which only sets up clips its movie already has
@@ -128,11 +126,112 @@ namespace fb
 		unsigned short m_varsSet; //0x00E0 BITFLAG 1 x, 2 y, 8 xscale, 0x10 yscale
 	};
 
-	// GRenderer::Cxform, GFxCharacter +0x24
+	// GRenderer::Cxform
 	struct GFxCxform
 	{
 		float m_rows[4][2]; //0x0000 rgba rows of { multiply, add }
 	};//Size=0x0020
+
+	struct GFxStringNode
+	{
+		const char* m_data; //0x0000
+	};
+
+	struct GFxCharacterHandle
+	{
+		char _0x0000[0x8];
+		GFxStringNode* m_name; //0x0008
+	};
+
+	// GFx 3.x display list node
+	class GFxCharacter
+	{
+	public:
+		void* m_vtable; //0x0000
+		char _0x0004[0x10];
+		int m_depth; //0x0014
+		char _0x0018[0xC];
+		GFxCxform m_cxform; //0x0024
+		float m_matrix[6]; //0x0044 rows { a, b, tx }, { c, d, ty }, twips
+		char _0x005C[0x1C];
+		unsigned short m_clipDepth; //0x0078 a timeline mask's: it masks the children after it up to that depth (the hit test mask list sub_137EB70)
+		unsigned char m_flags; //0x007A 0x80 scripted
+		char _0x007B[0x1];
+
+		VFUNC(float*, getBounds, 13, (float* out, const float* matrix), (this, out, matrix)); // rect through matrix, twips
+	};//Size=0x007C
+
+	// GASObjectInterface
+	class GFxObjectInterface
+	{
+	public:
+		void* m_vtable; //0x0000
+
+		VFUNC(int, getObjectType, 2, (), (this)); // 2 sprite
+	};
+
+	class GFxASCharacter : public GFxCharacter
+	{
+	public:
+		GFxObjectInterface m_object; //0x007C
+		char _0x0080[0x14];
+		GFxCharacterHandle* m_handle; //0x0094 made on first use (getHandle)
+		char _0x0098[0x8];
+		unsigned int m_asFlags; //0x00A0 GetAcceptAnimMoves sub_1316D40
+		char _0x00A4[0x4];
+		unsigned char m_blendMode; //0x00A8 GRenderer::BlendType, GetBlendMode slot 5
+		char _0x00A9[0x3];
+
+		GFxCharacterHandle* getHandle()
+		{
+			return reinterpret_cast<GFxCharacterHandle*(__thiscall*)(GFxASCharacter*)>(OFF_GFxCharacter_getHandle)(this);
+		}
+	};//Size=0x00AC
+
+	// GetInstanceAtDepth sub_136DC90
+	class GFxSprite : public GFxASCharacter
+	{
+	public:
+		char _0x00AC[0x18];
+		GFxCharacter** m_children; //0x00C4 the display list
+		unsigned int m_childCount; //0x00C8
+		char _0x00CC[0x100];
+		GFxCharacter* m_mask; //0x01CC setMask's
+	};
+
+	struct GFxFillStyle
+	{
+		unsigned char m_type; //0x0000 0 solid
+		char _0x0001[0x3];
+		unsigned int m_color; //0x0004 GColor 0xAARRGGBB
+		char _0x0008[0x20];
+	};//Size=0x0028
+
+	struct GFxLineStyle
+	{
+		char _0x0000[0x8];
+		unsigned int m_color; //0x0008
+		char _0x000C[0x8];
+	};//Size=0x0014
+
+	// OFF_vt_GFxConstShapeCharacterDef
+	class GFxConstShapeCharacterDef
+	{
+	public:
+		void* m_vtable; //0x0000
+		char _0x0004[0x38];
+		GFxFillStyle* m_fillStyles; //0x003C
+		GFxLineStyle* m_lineStyles; //0x0040
+		unsigned int m_fillStyleCount; //0x0044
+		unsigned int m_lineStyleCount; //0x0048
+	};
+
+	// OFF_vt_GFxGenericCharacter, a shape's character
+	class GFxGenericCharacter : public GFxCharacter
+	{
+	public:
+		GFxConstShapeCharacterDef* m_def; //0x007C
+	};
 
 	// vtable 0x2201DA8 GFxMovieRoot view slots - 5
 	class GFxMovieView
@@ -258,13 +357,20 @@ namespace fb
 		UI3dIconRelation m_relation; //0x02AC
 	};
 
-	// GFx 3 GFxDrawText, impl vtable 0x21F6DE8; a HUD text line keeps its own at +0x58
+	// GFx 3 GFxDrawText, impl vtable 0x21F6DE8
 	class GFxDrawText
 	{
 	public:
 		// float[4][2]: rgba rows of { multiply, add }, the whole line and its glow filter
 		VFUNC(void, setCxform, 22, (const float* cxform), (this, cxform));
 		VFUNC(const float*, getCxform, 23, (), (this));
+	};
+
+	//updateTextLine sub_77C260
+	struct UIHudTextLine
+	{
+		char _0x0000[0x58];
+		GFxDrawText* m_drawText; //0x0058
 	};
 
 	// UIHud::drawFromAtlas sub_77ACB0 params

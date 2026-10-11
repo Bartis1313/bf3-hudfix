@@ -20,9 +20,9 @@
 #define OFF_ClientSoldierWeaponsComponent_currentWeapon 0x01049B10 // thiscall () -> ClientSoldierWeapon*: list at +0xBC by the weapon handler's index
 #define OFF_ClientSoldierWeapon_vtable 0x02144710 // dtor sub_1041760; init sub_1043080 builds an attachment holder per socket (sub_1038E90)
 #define OFF_ClientSoldierAimingSimulation_updateZoom 0x010D5590 // thiscall (4 dwords) retn 10h: sets the camera fov from the zoom level when it changes
-#define OFF_g_clientGameContext 0x02380B58 // +0x10 what updateZoom passes to the fov multiplier
-#define CLIENT_GAME_CONTEXT_PLAYER_MANAGER 0x30 // ClientPlayerManager*, null outside a level; local player at +0xBC
-#define OFF_fovMultiplier 0x00F87720 // thiscall () -> float (st0): 1.0 when sub_118DAA0 (data +0x60 byte +0x62 clear) or sub_118DAC0 (byte +0x60), else Render +0x28
+#define OFF_g_clientGameContext 0x02380B58 // ClientGameContext* global
+#define OFF_ClientPlayerManager_getPlayer 0x00FDCB40 // thiscall (id) -> ClientPlayer*, null past the player count
+#define OFF_fovMultiplier 0x00F87720 // Level::thiscall () -> float (st0): 1.0 when not m_isMultiplayer (sub_118DAA0) or m_isCoop (sub_118DAC0), else GameRenderSettings +0x28
 
 namespace vfunc
 {
@@ -100,7 +100,6 @@ namespace fb
 		return type ? **static_cast<const char***>(type) : nullptr;
 	}
 
-	// MeshAsset (Asset Name +0x8) Materials +0x20 -> MeshMaterial Shader +0xC (SurfaceShaderInstanceDataStruct) VectorParameters +0x8
 	struct VectorShaderParameter
 	{
 		float m_value[4]; //0x0000
@@ -158,11 +157,29 @@ namespace fb
 		char _0x0024[0x7C];
 	};//Size=0x00A0
 
+	// what MeshSet preRegistration sub_1737740 gets of a loaded mesh's render data
+	struct MeshSetLayout
+	{
+		char _0x0000[0x10];
+		float m_boundingMin[3]; //0x0010
+		char _0x001C[0x4];
+		float m_boundingMax[3]; //0x0020
+		char _0x002C[0x2C];
+		const char* m_name; //0x0058
+	};
+
+	class MeshSet
+	{
+	public:
+		char _0x0000[0x10];
+		MeshSetLayout* m_layout; //0x0010
+	};
+
 	// sub_103F350 puts the transform on the weapon bone every frame
 	struct alignas(16) AttachmentRecord
 	{
-		unsigned char* m_meshSet; //0x0000 MeshSet
-		unsigned char* m_variation; //0x0004 MeshVariationSet of variation 0 (sub_10323C0)
+		MeshSet* m_meshSet; //0x0000
+		struct MeshVariationSet* m_variation; //0x0004 variation 0 (sub_10323C0)
 		unsigned short m_renderInstance; //0x0008 sub_173C100
 		char _0x000A[0x6];
 		float m_transform[16]; //0x0010 the socket's Transform (WeaponRegularSocketObjectData +0x20), copied at spawn
@@ -197,8 +214,78 @@ namespace fb
 	public:
 		char _0x0000[0x20];
 		float m_health; //0x0020 getHealth sub_F87BB0 (entity vtable slot 53)
-		char _0x0024[0x338];
+		char _0x0024[0x54];
+		int m_teamId; //0x0078
+		char _0x007C[0x2E0];
 		ClientSoldierWeaponsComponent* m_weapons; //0x035C
+	};
+
+	// SoldierBulletHit onMessage sub_109AAB0
+	class ClientSoldierComponent
+	{
+	public:
+		char _0x0000[0x70];
+		ClientSoldierEntity* m_soldier; //0x0070
+	};
+
+	struct Message
+	{
+		char _0x0000[0x8];
+		int m_type; //0x0008 the message class hash
+	};//Size=0x000C
+
+	struct BulletToSoldierComponentsHitMessage : Message
+	{
+		char _0x000C[0x4C];
+		unsigned int m_boneType; //0x0058 1 = head
+		unsigned int m_shooterPlayerId; //0x005C
+	};
+
+	class ClientPlayer;
+
+	class ClientPlayerManager
+	{
+	public:
+		ClientPlayer* getPlayer(unsigned int id)
+		{
+			return reinterpret_cast<ClientPlayer*(__thiscall*)(ClientPlayerManager*, unsigned int)>(OFF_ClientPlayerManager_getPlayer)(this, id);
+		}
+	};
+
+	class LevelData : public DataContainer
+	{
+	public:
+		char _0x0008[0x58];
+		bool m_isCoop; //0x0060 LevelDescription
+		bool m_isMenu; //0x0061
+		bool m_isMultiplayer; //0x0062
+	};
+
+	class Level
+	{
+	public:
+		char _0x0000[0x60];
+		LevelData* m_data; //0x0060
+
+		// the fov slider's multiplier, 1.0 outside multiplayer
+		float fovMultiplier()
+		{
+			return reinterpret_cast<float(__thiscall*)(Level*)>(OFF_fovMultiplier)(this);
+		}
+	};
+
+	class ClientGameContext
+	{
+	public:
+		char _0x0000[0x10];
+		Level* m_level; //0x0010
+		char _0x0014[0x1C];
+		ClientPlayerManager* m_playerManager; //0x0030 null outside a level; local player at +0xBC
+
+		static ClientGameContext* GetInstance()
+		{
+			return *reinterpret_cast<ClientGameContext**>(OFF_g_clientGameContext);
+		}
 	};
 
 	class ClientPlayer
@@ -213,8 +300,8 @@ namespace fb
 		// exists in a level
 		static ClientPlayer* GetLocal()
 		{
-			const auto* context = *reinterpret_cast<const unsigned char* const*>(OFF_g_clientGameContext);
-			if (!context || !*reinterpret_cast<void* const*>(context + CLIENT_GAME_CONTEXT_PLAYER_MANAGER))
+			const ClientGameContext* context = ClientGameContext::GetInstance();
+			if (!context || !context->m_playerManager)
 				return nullptr;
 			return reinterpret_cast<ClientPlayer*(__cdecl*)()>(OFF_getLocalPlayer)();
 		}
@@ -427,11 +514,131 @@ namespace fb
 		Array<UINodeConnection*> m_Connections; //0x0014
 	};
 
+	// RigidMeshAsset, SkinnedMeshAsset...
+	class MeshAsset : public Asset
+	{
+	public:
+		char _0x000C[0xC];
+		unsigned int m_nameHash; //0x0018 the high half of a mesh variation key
+		char _0x001C[0x4];
+		Array<DataContainer*> m_materials; //0x0020 MeshMaterial, an unresolved import while its partition loads
+	};
+
+	class MeshMaterial : public DataContainer
+	{
+	public:
+		char _0x0008[0xC];
+		Array<VectorShaderParameter> m_vectorParameters; //0x0014 Shader (SurfaceShaderInstanceDataStruct, +0xC) VectorParameters +0x8
+	};
+
+	class WeaponRegularSocketObjectData : public DataContainer
+	{
+	public:
+		char _0x0008[0x8];
+		DataContainer* m_zoomAsset; //0x0010 an import, resolved after its partition loads
+		char _0x0014[0xC];
+		float m_transform[16]; //0x0020 LinearTransform
+	};
+
+	struct PixelShaderPermutation
+	{
+		char _0x0000[0x1C];
+		void* m_shader; //0x001C ID3D11PixelShader*, null until made from m_data
+		unsigned int m_metrics; //0x0020
+		const unsigned char* m_data; //0x0024 DXBC
+		unsigned int m_dataSize; //0x0028
+	};//Size=0x002C
+
+	struct DxShaderSolution
+	{
+		char _0x0000[0x9];
+		unsigned char m_surfaceType; //0x0009 3, 4 blended (DxShaderDispatcher::applyBlendState)
+		unsigned char m_blendMode; //0x000A ShaderBlendMode: 0 lerp (premultiplied, ONE / INV_SRC_ALPHA), 1 additive (ONE / ONE)
+		char _0x000B[0x15];
+		PixelShaderPermutation* m_pixelPermutation; //0x0020
+		char _0x0024[0x1C];
+	};//Size=0x0040
+
+	// DxShaderDatabase vtable 0x209841C job sub_69E690
+	class DxShaderDatabase
+	{
+	public:
+		char _0x0000[0x190];
+		unsigned int m_solutionCount; //0x0190
+		unsigned int m_pixelPermutationCount; //0x0194
+		char _0x0198[0xC];
+		DxShaderSolution* m_solutions; //0x01A4
+		PixelShaderPermutation* m_pixelPermutations; //0x01A8
+	};
+
+	// getPath slot 1, getSettings slot 3
+	class DxShaderSystem
+	{
+	public:
+		char _0x0000[0xC];
+		DxShaderDatabase** m_databasesBegin; //0x000C addDatabase sub_6A5070 (vtable 0x20981A8 slot 17)
+		DxShaderDatabase** m_databasesEnd; //0x0010
+
+		static DxShaderSystem* GetInstance()
+		{
+			return *reinterpret_cast<DxShaderSystem**>(OFF_g_shaderSystem);
+		}
+	};
+
+	struct SurfaceShaderSolution
+	{
+		char _0x0000[0x8];
+		DxShaderSolution* m_solution; //0x0008
+		char _0x000C[0x4];
+	};//Size=0x0010
+
+	struct SurfaceShader
+	{
+		char _0x0000[0x44];
+		SurfaceShaderSolution* m_solutions; //0x0044
+		unsigned int m_solutionCount; //0x0048
+	};
+
+	struct ShaderParameterEntry
+	{
+		unsigned int m_handle; //0x0000 djb2xor of the lowercase name
+		unsigned short m_offset; //0x0004
+		unsigned short m_count; //0x0006 1
+	};//Size=0x0008
+
+	struct ShaderParameterBlock
+	{
+		unsigned short m_header; //0x0000 size & 0x1FFF, bit 13 vectors, 14 textures, 15 bools
+		unsigned short m_size; //0x0002
+		unsigned char m_vectorCount; //0x0004
+		unsigned char m_textureCount; //0x0005
+		unsigned char m_boolCount; //0x0006
+		char _0x0007[0x9];
+
+		ShaderParameterEntry* entries() { return reinterpret_cast<ShaderParameterEntry*>(this + 1); }
+		unsigned char* values() { return reinterpret_cast<unsigned char*>(this + 1); }
+	};//Size=0x0010
+
+	struct SurfaceShaderInstance
+	{
+		SurfaceShader* m_shader; //0x0000
+		ShaderParameterBlock* m_block; //0x0004
+		unsigned short m_header; //0x0008 the block's
+		char _0x000A[0x2];
+	};//Size=0x000C
+
+	struct MeshVariationSet
+	{
+		char _0x0000[0x8];
+		SurfaceShaderInstance* m_instances; //0x0008 one per material
+		unsigned int m_instanceCount; //0x000C
+	};
+
 	// node key: variation hash | MeshAsset NameHash << 32 (getMeshVariation sub_17398C0)
 	struct MeshVariationNode
 	{
 		unsigned long long key; //0x0000
-		unsigned char* set; //0x0008 MeshVariationSet: SurfaceShaderInstance array +0x8, count +0xC
+		MeshVariationSet* set; //0x0008
 		int refCount; //0x000C
 		MeshVariationNode* next; //0x0010
 	};
@@ -443,35 +650,5 @@ namespace fb
 		MeshVariationNode** buckets; //0x0028
 		unsigned int bucketCount; //0x002C
 		unsigned int elementCount; //0x0030
-	};
-	constexpr int SET_INSTANCES = 0x8;
-	constexpr int SET_INSTANCE_COUNT = 0xC;
-	constexpr int INSTANCE_STRIDE = 0xC; // SurfaceShaderInstance: SurfaceShader* +0x0, parameter block +0x4, header +0x8
-
-	// DxShaderDatabase (vtable 0x209841C): every solution and pixel permutation of a loaded shader database; createShaders
-	// sub_69E730 makes each permutation's shader from its DXBC at load (job sub_69E690)
-	constexpr int SHADER_SYSTEM_DATABASES = 0xC;
-	constexpr int DATABASE_SOLUTION_COUNT = 0x190;
-	constexpr int DATABASE_PIXEL_COUNT = 0x194;
-	constexpr int DATABASE_SOLUTIONS = 0x1A4; // DxShaderSolution[], 0x40 each
-	constexpr int DATABASE_PIXEL_PERMUTATIONS = 0x1A8; // PixelShaderPermutation[], 0x2C each
-	constexpr int SHADER_SOLUTION_SIZE = 0x40;
-	constexpr int PIXEL_PERMUTATION_SIZE = 0x2C;
-
-	struct PixelShaderPermutation
-	{
-		char _0x0000[0x1C];
-		void* m_shader; //0x001C ID3D11PixelShader*, null until made from m_data
-		unsigned int m_metrics; //0x0020
-		const unsigned char* m_data; //0x0024 DXBC
-		unsigned int m_dataSize; //0x0028
-	};
-	struct DxShaderSolution
-	{
-		char _0x0000[0x9];
-		unsigned char m_surfaceType; //0x0009 3, 4 blended (DxShaderDispatcher::applyBlendState)
-		unsigned char m_blendMode; //0x000A ShaderBlendMode: 0 lerp (premultiplied, ONE / INV_SRC_ALPHA), 1 additive (ONE / ONE)
-		char _0x000B[0x15];
-		PixelShaderPermutation* m_pixelPermutation; //0x0020
 	};
 }

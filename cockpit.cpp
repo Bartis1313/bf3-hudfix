@@ -30,7 +30,7 @@ namespace hudfix
         // and these don't expose params unlike scopes
         struct CockpitShader
         {
-            const unsigned char* database;
+            const fb::DxShaderDatabase* database;
             fb::PixelShaderPermutation* permutation;
             void* original; // the engine's, our reference while the copy is in
             ID3D11PixelShader* neutral; // our reference
@@ -41,7 +41,7 @@ namespace hudfix
         
         struct SolutionBlend
         {
-            const unsigned char* database;
+            const fb::DxShaderDatabase* database;
             fb::DxShaderSolution* solution;
             unsigned char blendMode; // the engine's
         };
@@ -49,22 +49,19 @@ namespace hudfix
         std::unordered_set<const fb::PixelShaderPermutation*> g_tracked; // the permutations with a copy
         std::unordered_set<const void*> g_neutrals; // the copies, a permutation holding one isn't checked again
         std::unordered_map<const fb::PixelShaderPermutation*, const void*> g_checked;
-        std::vector<const unsigned char*> g_databases; // the loaded databases the copies were made in
-        std::vector<const unsigned char*> g_seenDatabases;
+        std::vector<const fb::DxShaderDatabase*> g_databases; // the loaded databases the copies were made in
+        std::vector<const fb::DxShaderDatabase*> g_seenDatabases;
         ULONGLONG g_scanTime = 0;
         ULONGLONG g_seenTime = 0;
 
-        std::vector<const unsigned char*> loadedDatabases()
+        std::vector<const fb::DxShaderDatabase*> loadedDatabases()
         {
-            std::vector<const unsigned char*> out;
-            const unsigned char* system = *reinterpret_cast<const unsigned char* const*>(OFF_g_shaderSystem);
+            std::vector<const fb::DxShaderDatabase*> out;
+            const fb::DxShaderSystem* system = fb::DxShaderSystem::GetInstance();
             if (!system)
                 return out;
 
-            const auto begin = *reinterpret_cast<const unsigned char* const* const*>(system + fb::SHADER_SYSTEM_DATABASES);
-            const auto end = *reinterpret_cast<const unsigned char* const* const*>(system + fb::SHADER_SYSTEM_DATABASES + 4);
-
-            for (const auto* d = begin; d && d != end; ++d)
+            for (fb::DxShaderDatabase* const* d = system->m_databasesBegin; d && d != system->m_databasesEnd; ++d)
                 out.push_back(*d);
             return out;
         }
@@ -245,7 +242,7 @@ namespace hudfix
             std::memcpy(blob + 4, state, sizeof(state));
         }
 
-        void makeNeutral(ID3D11Device* device, const unsigned char* database, fb::PixelShaderPermutation* permutation)
+        void makeNeutral(ID3D11Device* device, const fb::DxShaderDatabase* database, fb::PixelShaderPermutation* permutation)
         {
             std::vector<uint8_t> copy(permutation->m_data, permutation->m_data + permutation->m_dataSize);
             float level = 0.0f;
@@ -279,9 +276,9 @@ namespace hudfix
         // the copies dropped: in a database still loaded the engine's shader and blend go back, in one that is gone nothing is
         // written (the engine released whichever shader its permutations held)
         // othwerwise you leak, copies are not correct
-        void release(const std::vector<const unsigned char*>& loaded, const char* why)
+        void release(const std::vector<const fb::DxShaderDatabase*>& loaded, const char* why)
         {
-            const auto isLoaded = [&loaded](const unsigned char* database) { return std::find(loaded.begin(), loaded.end(), database) != loaded.end(); };
+            const auto isLoaded = [&loaded](const fb::DxShaderDatabase* database) { return std::find(loaded.begin(), loaded.end(), database) != loaded.end(); };
             for (CockpitShader& s : g_shaders)
             {
                 if (isLoaded(s.database) && s.permutation->m_shader == s.neutral)
@@ -306,7 +303,7 @@ namespace hudfix
             g_scanTime = 0;
         }
 
-        void trackSolution(const unsigned char* database, fb::DxShaderSolution* solution)
+        void trackSolution(const fb::DxShaderDatabase* database, fb::DxShaderSolution* solution)
         {
             for (const SolutionBlend& s : g_solutions)
             {
@@ -332,7 +329,7 @@ namespace hudfix
         if (!renderer || !renderer->m_device)
             return;
 
-        const std::vector<const unsigned char*> loaded = loadedDatabases();
+        const std::vector<const fb::DxShaderDatabase*> loaded = loadedDatabases();
         if (loaded != g_seenDatabases)
         {
             g_seenDatabases = loaded;
@@ -345,13 +342,11 @@ namespace hudfix
         ID3D11Device* device = static_cast<ID3D11Device*>(renderer->m_device);
         const size_t before = g_shaders.size();
         size_t checked = 0;
-        for (const unsigned char* database : loaded)
+        for (const fb::DxShaderDatabase* database : loaded)
         {
-            unsigned char* permutations = *reinterpret_cast<unsigned char* const*>(database + fb::DATABASE_PIXEL_PERMUTATIONS);
-            const unsigned int permutationCount = *reinterpret_cast<const unsigned int*>(database + fb::DATABASE_PIXEL_COUNT);
-            for (unsigned int i = 0; permutations && i < permutationCount; ++i)
+            for (unsigned int i = 0; database->m_pixelPermutations && i < database->m_pixelPermutationCount; ++i)
             {
-                fb::PixelShaderPermutation* permutation = reinterpret_cast<fb::PixelShaderPermutation*>(permutations + i * fb::PIXEL_PERMUTATION_SIZE);
+                fb::PixelShaderPermutation* permutation = &database->m_pixelPermutations[i];
                 if (!permutation->m_data || g_neutrals.count(permutation->m_shader))
                     continue;
 
@@ -365,11 +360,9 @@ namespace hudfix
                 entry->second = permutation->m_shader ? permutation->m_shader : CHECKED_WITHOUT_SHADER; // a shader made here
             }
 
-            unsigned char* solutions = *reinterpret_cast<unsigned char* const*>(database + fb::DATABASE_SOLUTIONS);
-            const unsigned int solutionCount = *reinterpret_cast<const unsigned int*>(database + fb::DATABASE_SOLUTION_COUNT);
-            for (unsigned int i = 0; solutions && !g_tracked.empty() && i < solutionCount; ++i)
+            for (unsigned int i = 0; database->m_solutions && !g_tracked.empty() && i < database->m_solutionCount; ++i)
             {
-                fb::DxShaderSolution* solution = reinterpret_cast<fb::DxShaderSolution*>(solutions + i * fb::SHADER_SOLUTION_SIZE);
+                fb::DxShaderSolution* solution = &database->m_solutions[i];
                 if (solution->m_pixelPermutation && g_tracked.count(solution->m_pixelPermutation))
                     trackSolution(database, solution);
             }
@@ -398,7 +391,7 @@ namespace hudfix
         if (g_shaders.empty() && g_solutions.empty())
             return;
 
-        const std::vector<const unsigned char*> loaded = loadedDatabases();
+        const std::vector<const fb::DxShaderDatabase*> loaded = loadedDatabases();
         if (loaded != g_databases)
         {
             release(loaded, "databases changed");

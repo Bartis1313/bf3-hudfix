@@ -22,7 +22,7 @@ namespace hudfix
         using MinimapRenderFn = int(__thiscall*)(fb::UIMinimap* minimap, const void* transform, int a3, int a4);
         using DrawFromAtlasFn = fb::Vec2*(__thiscall*)(void* hud, fb::Vec2* outSize, const fb::UIHudIconDrawParams* params, float time, float pad, float rotation);
         using DrawTextFn = fb::GRectF*(__thiscall*)(fb::UIHud* hud, fb::GRectF* out, const fb::Vec2* pos, const char* text, float size, float glow, int halign, int valign, char snap);
-        using UpdateTextLineFn = int(__thiscall*)(void* hud, unsigned char* line, const fb::Vec2* pos);
+        using UpdateTextLineFn = int(__thiscall*)(void* hud, fb::UIHudTextLine* line, const fb::Vec2* pos);
         using DrawPercentageBarFn = fb::Vec2*(__thiscall*)(void* hud, fb::Vec2* outSize, const fb::Vec2* center, const fb::Vec2* size, int relation, const void* color, float scale, float percent);
         using IconPassFn = void*(__thiscall*)(void* comp, float dt);
         using SetDisplayInfoFn = bool(__thiscall*)(void* iface, void* data, const fb::GFxDisplayInfo* info);
@@ -397,9 +397,9 @@ namespace hudfix
 
         // the line is displayed right here, so its GFxDrawText's cxform alpha fades text and glow together. Lines are
         // cached and shared, so every update sets it, back to 1 outside a fade
-        int __fastcall hkUpdateTextLine(void* _this, void*, unsigned char* line, const fb::Vec2* pos)
+        int __fastcall hkUpdateTextLine(void* _this, void*, fb::UIHudTextLine* line, const fb::Vec2* pos)
         {
-            if (fb::GFxDrawText* text = *reinterpret_cast<fb::GFxDrawText**>(line + 0x58))
+            if (fb::GFxDrawText* text = line->m_drawText)
             {
                 float cxform[4][2];
                 std::memcpy(cxform, text->getCxform(), sizeof(cxform));

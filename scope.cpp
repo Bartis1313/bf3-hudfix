@@ -18,39 +18,18 @@ namespace hudfix
     // most of this comes from my bf-visual-editor
     namespace
     {
-        using SetVectorFn = void(__thiscall*)(unsigned char* block, unsigned int index, unsigned int handle, const float* value);
+        using SetVectorFn = void(__thiscall*)(fb::ShaderParameterBlock* block, unsigned int index, unsigned int handle, const float* value);
         using ReleaseInstancesFn = void(__thiscall*)(fb::InternalDatabasePartition* partition, int unused);
-        using PreRegistrationFn = bool(__thiscall*)(unsigned char* meshSet, int compartment);
+        using PreRegistrationFn = bool(__thiscall*)(fb::MeshSet* meshSet, int compartment);
         ReleaseInstancesFn oReleaseInstances = nullptr;
         PreRegistrationFn oPreRegistration = nullptr;
         
         // mesh stuff
-        constexpr int MESH_SET_LAYOUT = 0x10;
-        constexpr int LAYOUT_BOUNDING_MIN = 0x10;
-        constexpr int LAYOUT_BOUNDING_MAX = 0x20;
-        constexpr int LAYOUT_NAME = 0x58;
         using ArenaAllocFn = void*(__thiscall*)(void* arena, unsigned int size, unsigned int align);
         SetVectorFn oSetVector = nullptr;
 
-        constexpr int ASSET_NAME = 0x8;
-        constexpr int MESH_NAME_HASH = 0x18;
-        constexpr int MESH_MATERIALS = 0x20;
-        constexpr int MATERIAL_VECTOR_PARAMETERS = 0xC + 0x8; // Shader struct, its VectorParameters
-
         using fb::MeshVariationNode;
         using fb::MeshVariationManager;
-        using fb::SET_INSTANCES;
-        using fb::SET_INSTANCE_COUNT;
-        using fb::INSTANCE_STRIDE;
-        constexpr int INSTANCE_BLOCK = 0x4;
-        constexpr int INSTANCE_HEADER = 0x8;
-        // ShaderParameterBlock
-        constexpr int BLOCK_HEADER = 0x0;
-        constexpr int BLOCK_SIZE = 0x2;
-        constexpr int BLOCK_VECTOR_COUNT = 0x4;
-        constexpr int BLOCK_TEXTURE_COUNT = 0x5;
-        constexpr int BLOCK_BOOL_COUNT = 0x6;
-        constexpr int BLOCK_ENTRIES = 0x10;
         constexpr unsigned int TEXTURE_BYTES = 4;
 
         struct Reticle
@@ -67,15 +46,12 @@ namespace hudfix
         // a render block replaced by one with a color slot, put back for DEFAULT
         struct Grown
         {
-            unsigned char* instance;
-            unsigned char* original;
+            fb::SurfaceShaderInstance* instance;
+            fb::ShaderParameterBlock* original;
             unsigned short originalHeader;
-            unsigned char* grown;
+            fb::ShaderParameterBlock* grown;
         };
 
-        // WeaponRegularSocketObjectData
-        constexpr int SOCKET_TRANSFORM = 0x20;
-        constexpr int SOCKET_ZOOM_ASSET = 0x10;
         struct ReticleProxy
         {
             const fb::InternalDatabasePartition* partition;
@@ -99,7 +75,7 @@ namespace hudfix
         struct ProxyCandidate
         {
             const fb::InternalDatabasePartition* partition;
-            unsigned char* object;
+            fb::WeaponRegularSocketObjectData* object;
         };
         std::vector<ProxyCandidate> g_candidates;
 
@@ -120,7 +96,7 @@ namespace hudfix
         // (render block, parameter)
         std::unordered_map<unsigned long long, std::array<float, 4>> g_blockOriginal;
         // shader -> whether it reads color
-        std::unordered_map<const unsigned char*, bool> g_colorShaders;
+        std::unordered_map<const fb::SurfaceShader*, bool> g_colorShaders;
         std::mutex g_lock;
         unsigned int g_appliedElements = 0;
         // the loading thread fills the variation table, so it is only walked once its size settles
@@ -160,12 +136,10 @@ namespace hudfix
             return found;
         }
 
-        // MeshSet
         const char* recordMesh(const fb::AttachmentRecord* record)
         {
-            const unsigned char* layout = record->m_meshSet ? *reinterpret_cast<unsigned char* const*>(record->m_meshSet + MESH_SET_LAYOUT) : nullptr;
-            return layout ? *reinterpret_cast<const char* const*>(layout + LAYOUT_NAME) : nullptr;
-
+            const fb::MeshSetLayout* layout = record->m_meshSet ? record->m_meshSet->m_layout : nullptr;
+            return layout ? layout->m_name : nullptr;
         }
 
         bool sameTransform(const float* a, const float* b)
@@ -188,39 +162,31 @@ namespace hudfix
 
         const unsigned int COLOR_HANDLE = parameterHandle("Color");
 
-        unsigned long long heldKey(const unsigned char* block, unsigned int handle)
+        unsigned long long heldKey(const fb::ShaderParameterBlock* block, unsigned int handle)
         {
             return (static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(block)) << 32) | handle;
         }
 
-        // SurfaceShader solution pairs
-        constexpr int SHADER_SOLUTIONS = 0x44;
-        constexpr int SHADER_SOLUTION_COUNT = 0x48;
-        constexpr int SOLUTION_STRIDE = 0x10;
-        constexpr int SOLUTION_POINTER = 0x8;
-        constexpr int SOLUTION_PIXEL = 0x20;
-        constexpr int PERMUTATION_DATA = 0x24;
-        constexpr int PERMUTATION_SIZE = 0x28;
         constexpr unsigned int MAX_SOLUTIONS = 64;
 
-        bool readDxbc(const unsigned char* solution, const char*& data, unsigned int& size)
+        bool readDxbc(const fb::DxShaderSolution* solution, const char*& data, unsigned int& size)
         {
-            const unsigned char* permutation = *reinterpret_cast<unsigned char* const*>(solution + SOLUTION_PIXEL);
-            data = permutation ? *reinterpret_cast<const char* const*>(permutation + PERMUTATION_DATA) : nullptr;
-            size = permutation ? *reinterpret_cast<const unsigned int*>(permutation + PERMUTATION_SIZE) : 0;
+            const fb::PixelShaderPermutation* permutation = solution->m_pixelPermutation;
+            data = permutation ? reinterpret_cast<const char*>(permutation->m_data) : nullptr;
+            size = permutation ? permutation->m_dataSize : 0;
             return data && size >= 32 && size <= (1u << 20) && std::memcmp(data, "DXBC", 4) == 0;
         }
 
         // whether a pixel shader of the instance's shader reads external_<name>
-        bool shaderReads(const unsigned char* instance, const char* name)
+        bool shaderReads(const fb::SurfaceShaderInstance* instance, const char* name)
         {
-            const unsigned char* shader = *reinterpret_cast<unsigned char* const*>(instance);
-            const unsigned char* pairs = shader ? *reinterpret_cast<unsigned char* const*>(shader + SHADER_SOLUTIONS) : nullptr;
-            const unsigned int count = shader ? *reinterpret_cast<const unsigned int*>(shader + SHADER_SOLUTION_COUNT) : 0;
+            const fb::SurfaceShader* shader = instance->m_shader;
+            const fb::SurfaceShaderSolution* pairs = shader ? shader->m_solutions : nullptr;
+            const unsigned int count = shader ? shader->m_solutionCount : 0;
             const std::string wanted = std::string("external_") + name;
             for (unsigned int p = 0; pairs && p < count && p < MAX_SOLUTIONS; ++p)
             {
-                const unsigned char* solution = *reinterpret_cast<unsigned char* const*>(pairs + SOLUTION_STRIDE * p + SOLUTION_POINTER);
+                const fb::DxShaderSolution* solution = pairs[p].m_solution;
                 const char* data = nullptr;
                 unsigned int size = 0;
                 if (!solution || !readDxbc(solution, data, size))
@@ -247,69 +213,66 @@ namespace hudfix
             return { (color.r - low) / range * intensity, (color.g - low) / range * intensity, (color.b - low) / range * intensity, alpha };
         }
 
-        float* blockVector(unsigned char* block, unsigned int handle)
+        float* blockVector(fb::ShaderParameterBlock* block, unsigned int handle)
         {
-            const unsigned int count = block[BLOCK_VECTOR_COUNT];
-            for (unsigned int i = 0; i < count; ++i)
+            const fb::ShaderParameterEntry* entries = block->entries();
+            for (unsigned int i = 0; i < block->m_vectorCount; ++i)
             {
-                const unsigned char* entry = block + BLOCK_ENTRIES + 8 * i;
-                if (*reinterpret_cast<const unsigned int*>(entry) == handle)
-                    return reinterpret_cast<float*>(block + BLOCK_ENTRIES + *reinterpret_cast<const unsigned short*>(entry + 4));
+                if (entries[i].m_handle == handle)
+                    return reinterpret_cast<float*>(block->values() + entries[i].m_offset);
             }
             return nullptr;
         }
 
         // copied bf-visual-editor growBlockWithVector
-        unsigned char* growBlock(MeshVariationManager* manager, unsigned char* instance, unsigned int handle, const float* value)
+        fb::ShaderParameterBlock* growBlock(MeshVariationManager* manager, fb::SurfaceShaderInstance* instance, unsigned int handle, const float* value)
         {
-            unsigned char* old = *reinterpret_cast<unsigned char**>(instance + INSTANCE_BLOCK);
-            const unsigned int vec = old ? old[BLOCK_VECTOR_COUNT] : 0, tex = old ? old[BLOCK_TEXTURE_COUNT] : 0, bol = old ? old[BLOCK_BOOL_COUNT] : 0;
+            fb::ShaderParameterBlock* old = instance->m_block;
+            const unsigned int vec = old ? old->m_vectorCount : 0, tex = old ? old->m_textureCount : 0, bol = old ? old->m_boolCount : 0;
             if (vec + tex + bol > 128 || vec == 255 || !manager->heap)
                 return nullptr;
 
             const unsigned int nvec = vec + 1, total = nvec + tex + bol;
             const unsigned int head = (8 * total + 15) & ~15u;
-            const unsigned int size = 16 + head + 16 * nvec + TEXTURE_BYTES * tex + bol;
+            const unsigned int size = sizeof(fb::ShaderParameterBlock) + head + 16 * nvec + TEXTURE_BYTES * tex + bol;
             const unsigned short header = static_cast<unsigned short>((size & 0x1FFF) | (1u << 13) | (tex ? 1u << 14 : 0) | (bol ? 1u << 15 : 0));
 
-            auto grown = static_cast<unsigned char*>(reinterpret_cast<ArenaAllocFn>(OFF_MemoryArena_alloc)(manager->heap, size, 16));
+            auto grown = static_cast<fb::ShaderParameterBlock*>(reinterpret_cast<ArenaAllocFn>(OFF_MemoryArena_alloc)(manager->heap, size, 16));
             if (!grown || (reinterpret_cast<uintptr_t>(grown) & 15))
                 return nullptr;
 
             std::memset(grown, 0, size);
-            *reinterpret_cast<unsigned short*>(grown + BLOCK_HEADER) = header;
-            *reinterpret_cast<unsigned short*>(grown + BLOCK_SIZE) = static_cast<unsigned short>(size);
-            grown[BLOCK_VECTOR_COUNT] = static_cast<unsigned char>(nvec);
-            grown[BLOCK_TEXTURE_COUNT] = static_cast<unsigned char>(tex);
-            grown[BLOCK_BOOL_COUNT] = static_cast<unsigned char>(bol);
+            grown->m_header = header;
+            grown->m_size = static_cast<unsigned short>(size);
+            grown->m_vectorCount = static_cast<unsigned char>(nvec);
+            grown->m_textureCount = static_cast<unsigned char>(tex);
+            grown->m_boolCount = static_cast<unsigned char>(bol);
 
-            const auto entry = [](unsigned char* block, unsigned int index) { return block + BLOCK_ENTRIES + 8 * index; };
-            const auto handleOf = [](unsigned char* e) -> unsigned int& { return *reinterpret_cast<unsigned int*>(e); };
-            const auto offsetOf = [](unsigned char* e) -> unsigned short& { return *reinterpret_cast<unsigned short*>(e + 4); };
+            fb::ShaderParameterEntry* entries = grown->entries();
             unsigned short offset = static_cast<unsigned short>(head);
             for (unsigned int i = 0; i < total; ++i)
             {
-                unsigned char* e = entry(grown, i);
-                offsetOf(e) = offset;
-                *reinterpret_cast<unsigned short*>(e + 6) = 1;
+                entries[i].m_offset = offset;
+                entries[i].m_count = 1;
                 offset = static_cast<unsigned short>(offset + (i < nvec ? 16 : i < nvec + tex ? TEXTURE_BYTES : 1));
             }
 
-            unsigned char* values = grown + BLOCK_ENTRIES;
-            const unsigned char* oldValues = old ? old + BLOCK_ENTRIES : nullptr;
+            unsigned char* values = grown->values();
+            const fb::ShaderParameterEntry* oldEntries = old ? old->entries() : nullptr;
+            const unsigned char* oldValues = old ? old->values() : nullptr;
             for (unsigned int i = 0; i < vec; ++i)
             {
-                handleOf(entry(grown, i)) = handleOf(entry(old, i));
-                std::memcpy(values + offsetOf(entry(grown, i)), oldValues + offsetOf(entry(old, i)), 16);
+                entries[i].m_handle = oldEntries[i].m_handle;
+                std::memcpy(values + entries[i].m_offset, oldValues + oldEntries[i].m_offset, 16);
             }
-            handleOf(entry(grown, vec)) = handle;
-            std::memcpy(values + offsetOf(entry(grown, vec)), value, 16);
+            entries[vec].m_handle = handle;
+            std::memcpy(values + entries[vec].m_offset, value, 16);
             for (unsigned int i = 0; i < tex + bol; ++i)
             {
-                unsigned char* to = entry(grown, nvec + i);
-                unsigned char* from = entry(old, vec + i);
-                handleOf(to) = handleOf(from);
-                std::memcpy(values + offsetOf(to), oldValues + offsetOf(from), i < tex ? TEXTURE_BYTES : 1);
+                fb::ShaderParameterEntry& to = entries[nvec + i];
+                const fb::ShaderParameterEntry& from = oldEntries[vec + i];
+                to.m_handle = from.m_handle;
+                std::memcpy(values + to.m_offset, oldValues + from.m_offset, i < tex ? TEXTURE_BYTES : 1);
             }
 
             // grown again: the record keeps the engine's own block
@@ -320,23 +283,23 @@ namespace hudfix
             {
                 if (record != g_grown.end())
                     g_grown.erase(record);
-                g_grown.push_back({ instance, old, *reinterpret_cast<unsigned short*>(instance + INSTANCE_HEADER), grown });
+                g_grown.push_back({ instance, old, instance->m_header, grown });
             }
-            *reinterpret_cast<unsigned char**>(instance + INSTANCE_BLOCK) = grown;
-            *reinterpret_cast<unsigned short*>(instance + INSTANCE_HEADER) = header;
+            instance->m_block = grown;
+            instance->m_header = header;
             return grown;
         }
 
-        void restoreGrown(unsigned char* instance)
+        void restoreGrown(fb::SurfaceShaderInstance* instance)
         {
             for (auto it = g_grown.begin(); it != g_grown.end(); ++it)
             {
                 if (it->instance != instance)
                     continue;
-                if (*reinterpret_cast<unsigned char**>(instance + INSTANCE_BLOCK) == it->grown)
+                if (instance->m_block == it->grown)
                 {
-                    *reinterpret_cast<unsigned char**>(instance + INSTANCE_BLOCK) = it->original;
-                    *reinterpret_cast<unsigned short*>(instance + INSTANCE_HEADER) = it->originalHeader;
+                    instance->m_block = it->original;
+                    instance->m_header = it->originalHeader;
                 }
                 g_grown.erase(it);
                 return;
@@ -344,9 +307,9 @@ namespace hudfix
         }
 
         // the block with a slot for handle, grown when it has none (only dots grow)
-        unsigned char* withSlot(MeshVariationManager* manager, const Reticle& reticle, unsigned char* instance, unsigned int handle, const float* value)
+        fb::ShaderParameterBlock* withSlot(MeshVariationManager* manager, const Reticle& reticle, fb::SurfaceShaderInstance* instance, unsigned int handle, const float* value)
         {
-            unsigned char* block = *reinterpret_cast<unsigned char**>(instance + INSTANCE_BLOCK);
+            fb::ShaderParameterBlock* block = instance->m_block;
             if (float* existing = block ? blockVector(block, handle) : nullptr)
             {
                 // the engine's own value, unless the block is one this grew or the value is already held
@@ -358,19 +321,19 @@ namespace hudfix
             return reticle.grow ? growBlock(manager, instance, handle, value) : nullptr;
         }
 
-        void hold(unsigned char* block, unsigned int handle, const std::array<float, 4>& value)
+        void hold(fb::ShaderParameterBlock* block, unsigned int handle, const std::array<float, 4>& value)
         {
             std::copy(value.begin(), value.end(), blockVector(block, handle));
             g_held[heldKey(block, handle)] = value;
         }
 
-        void restore(const Reticle& reticle, unsigned char* instance)
+        void restore(const Reticle& reticle, fb::SurfaceShaderInstance* instance)
         {
-            if (unsigned char* block = *reinterpret_cast<unsigned char**>(instance + INSTANCE_BLOCK))
+            if (fb::ShaderParameterBlock* block = instance->m_block)
                 g_held.erase(heldKey(block, COLOR_HANDLE));
             restoreGrown(instance);
 
-            unsigned char* block = *reinterpret_cast<unsigned char**>(instance + INSTANCE_BLOCK);
+            fb::ShaderParameterBlock* block = instance->m_block;
             float* value = block ? blockVector(block, COLOR_HANDLE) : nullptr;
             if (!value)
                 return;
@@ -381,15 +344,15 @@ namespace hudfix
         }
 
         // the reticle's material of a variation set in the scope color, or back to its own
-        bool tint(MeshVariationManager* manager, Reticle& reticle, unsigned char* set)
+        bool tint(MeshVariationManager* manager, Reticle& reticle, fb::MeshVariationSet* set)
         {
-            if (reticle.material >= *reinterpret_cast<unsigned int*>(set + SET_INSTANCE_COUNT))
+            if (reticle.material >= set->m_instanceCount)
                 return false;
 
-            unsigned char* instance = *reinterpret_cast<unsigned char**>(set + SET_INSTANCES) + INSTANCE_STRIDE * reticle.material;
+            fb::SurfaceShaderInstance* instance = &set->m_instances[reticle.material];
             if (reticle.checkShader)
             {
-                const unsigned char* shader = *reinterpret_cast<unsigned char* const*>(instance);
+                const fb::SurfaceShader* shader = instance->m_shader;
                 auto reads = g_colorShaders.find(shader);
                 if (reads == g_colorShaders.end())
                     reads = g_colorShaders.emplace(shader, shaderReads(instance, "Color")).first;
@@ -405,7 +368,7 @@ namespace hudfix
             }
 
             alignas(16) const std::array<float, 4> hue = colorize(reticle, *color);
-            unsigned char* block = withSlot(manager, reticle, instance, COLOR_HANDLE, hue.data());
+            fb::ShaderParameterBlock* block = withSlot(manager, reticle, instance, COLOR_HANDLE, hue.data());
             if (!block)
                 return false;
             hold(block, COLOR_HANDLE, hue);
@@ -420,7 +383,7 @@ namespace hudfix
                 return 0;
 
             int written = 0;
-            std::unordered_set<unsigned char*> sets;
+            std::unordered_set<fb::MeshVariationSet*> sets;
             for (unsigned int b = 0; b < manager->bucketCount; ++b)
             {
                 for (MeshVariationNode* node = manager->buckets[b]; node; node = node->next)
@@ -445,7 +408,7 @@ namespace hudfix
             for (int i = 0; i < count; ++i)
             {
                 const char* name = recordMesh(records[i]);
-                unsigned char* set = records[i]->m_variation;
+                fb::MeshVariationSet* set = records[i]->m_variation;
                 if (!name || !set)
                     continue;
                 const std::string mesh = lower(name);
@@ -459,7 +422,7 @@ namespace hudfix
             return written;
         }
 
-        void __fastcall hkSetVector(unsigned char* _this, void*, unsigned int index, unsigned int handle, const float* value)
+        void __fastcall hkSetVector(fb::ShaderParameterBlock* _this, void*, unsigned int index, unsigned int handle, const float* value)
         {
             if (handle == COLOR_HANDLE)
             {
@@ -588,15 +551,15 @@ namespace hudfix
         }
 
         // each mesh's render data, loaded once; only the reticles' bounds are kept
-        bool __fastcall hkPreRegistration(unsigned char* _this, void*, int compartment)
+        bool __fastcall hkPreRegistration(fb::MeshSet* _this, void*, int compartment)
         {
             const bool result = oPreRegistration(_this, compartment);
-            const unsigned char* layout = *reinterpret_cast<unsigned char* const*>(_this + MESH_SET_LAYOUT);
-            const char* name = layout ? *reinterpret_cast<const char* const*>(layout + LAYOUT_NAME) : nullptr;
+            const fb::MeshSetLayout* layout = _this->m_layout;
+            const char* name = layout ? layout->m_name : nullptr;
             if (name && lower(name).find("reticule") != std::string::npos)
             {
-                const float* low = reinterpret_cast<const float*>(layout + LAYOUT_BOUNDING_MIN);
-                const float* high = reinterpret_cast<const float*>(layout + LAYOUT_BOUNDING_MAX);
+                const float* low = layout->m_boundingMin;
+                const float* high = layout->m_boundingMax;
                 const std::string mesh = lower(name);
                 const std::string other = otherSize(mesh);
 
@@ -615,9 +578,9 @@ namespace hudfix
         }
 
         // an import is resolved by now, but stays a data pointer of unknown kind
-        const char* meshName(const unsigned char* object)
+        const char* meshName(const fb::WeaponRegularSocketObjectData* object)
         {
-            fb::DataContainer* mesh = *reinterpret_cast<fb::DataContainer* const*>(object + SOCKET_ZOOM_ASSET);
+            fb::DataContainer* mesh = object->m_zoomAsset;
             if (!mesh || (reinterpret_cast<uintptr_t>(mesh) & 3))
                 return nullptr;
 
@@ -626,7 +589,7 @@ namespace hudfix
             if (length < 9 || std::strcmp(type + length - 9, "MeshAsset") != 0)
                 return nullptr;
 
-            return *reinterpret_cast<const char* const*>(reinterpret_cast<const unsigned char*>(mesh) + ASSET_NAME);
+            return static_cast<const fb::MeshAsset*>(mesh)->m_Name;
         }
 
         // the candidates whose mesh is a reticle become proxies
@@ -642,7 +605,7 @@ namespace hudfix
                 if (name.find("reticule") == std::string::npos)
                     return true;
 
-                ReticleProxy proxy{ candidate.partition, reinterpret_cast<float*>(candidate.object + SOCKET_TRANSFORM) };
+                ReticleProxy proxy{ candidate.partition, candidate.object->m_transform };
                 std::copy(proxy.transform, proxy.transform + 16, proxy.original);
                 proxy.mesh = name;
                 g_proxies.push_back(proxy);
@@ -683,7 +646,7 @@ namespace hudfix
                     continue;
 
                 std::lock_guard lock(g_lock);
-                g_candidates.push_back({ partition, reinterpret_cast<unsigned char*>(object) });
+                g_candidates.push_back({ partition, static_cast<fb::WeaponRegularSocketObjectData*>(object) });
             }
         }
 
@@ -695,10 +658,10 @@ namespace hudfix
             if (length < 9 || std::strcmp(type + length - 9, "MeshAsset") != 0)
                 continue;
 
-            const auto asset = reinterpret_cast<unsigned char*>(object);
-            const std::string name = lower(*reinterpret_cast<const char* const*>(asset + ASSET_NAME));
-            const unsigned int meshHash = *reinterpret_cast<const unsigned int*>(asset + MESH_NAME_HASH);
-            const auto& materials = *reinterpret_cast<const fb::Array<fb::DataContainer*>*>(asset + MESH_MATERIALS);
+            const auto asset = static_cast<const fb::MeshAsset*>(object);
+            const std::string name = lower(asset->m_Name);
+            const unsigned int meshHash = asset->m_nameHash;
+            const auto& materials = asset->m_materials;
 
             if (name.find("weapons/accessories/") == std::string::npos)
                 continue;
@@ -719,7 +682,7 @@ namespace hudfix
                 bool vectors = false;
                 if (materialType && std::strcmp(materialType, "MeshMaterial") == 0)
                 {
-                    const auto& parameters = *reinterpret_cast<const fb::Array<fb::VectorShaderParameter>*>(reinterpret_cast<const unsigned char*>(material) + MATERIAL_VECTOR_PARAMETERS);
+                    const auto& parameters = static_cast<const fb::MeshMaterial*>(material)->m_vectorParameters;
                     vectors = parameters.size() != 0;
                     for (uint32_t j = 0; j < parameters.size(); ++j)
                     {

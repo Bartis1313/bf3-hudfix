@@ -63,9 +63,9 @@ namespace hudfix
         // the fov slider's multiplier
         float sliderFovMultiplier()
         {
-            const auto context = *reinterpret_cast<const unsigned char* const*>(OFF_g_clientGameContext);
-            void* owner = context ? *reinterpret_cast<void* const*>(context + 0x10) : nullptr;
-            return owner ? reinterpret_cast<float(__thiscall*)(void*)>(OFF_fovMultiplier)(owner) : 1.0f;
+            const fb::ClientGameContext* context = fb::ClientGameContext::GetInstance();
+            fb::Level* level = context ? context->m_level : nullptr;
+            return level ? level->fovMultiplier() : 1.0f;
         }
 
         // the camera's fov at a zoom level

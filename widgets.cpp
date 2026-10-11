@@ -25,9 +25,7 @@ namespace hudfix
         using GetCxformFn = bool(__thiscall*)(void* iface, void* data, fb::GFxCxform* out);
         using SetCxformFn = bool(__thiscall*)(void* iface, void* data, const fb::GFxCxform* cxform);
         using ObjectReleaseFn = void(__thiscall*)(void* iface, fb::GFxValue* value, void* data);
-        using ResolveCharacterFn = unsigned char*(__thiscall*)(void* handle, void* movieRoot);
-        using GetHandleFn = unsigned char*(__thiscall*)(unsigned char* character);
-        using ObjectTypeFn = int(__thiscall*)(const unsigned char* object);
+        using ResolveCharacterFn = fb::GFxASCharacter*(__thiscall*)(void* handle, void* movieRoot);
         using InvokeFn = bool(__thiscall*)(void* iface, void* data, fb::GFxValue* result, const char* name, const fb::GFxValue* args, unsigned int count, bool isDisplayObject);
         using GetMemberFn = bool(__thiscall*)(void* iface, void* data, const char* name, fb::GFxValue* out, bool isDisplayObject);
         using SetMemberFn = bool(__thiscall*)(void* iface, void* data, const char* name, const fb::GFxValue* value, bool isDisplayObject);
@@ -37,8 +35,7 @@ namespace hudfix
         using AdvanceFn = float(__thiscall*)(fb::GFxMovieView* movie, float dt, unsigned int catchUp);
         using InitializeScreenFn = void(__thiscall*)(fb::UIScreenManager* manager, const char* screen);
         using SetScreenVisibleFn = bool(__thiscall*)(fb::UIScreenManager* manager, fb::UIScreenData* screen, bool visible);
-        using OnMessageFn = void(__thiscall*)(void* component, const unsigned char* message);
-        using GetPlayerFn = fb::ClientPlayer*(__thiscall*)(void* manager, unsigned int id);
+        using OnMessageFn = void(__thiscall*)(void* component, const fb::Message* message);
 
         DisplayFn oDisplay = nullptr;
         AdvanceFn oAdvance = nullptr;
@@ -51,12 +48,7 @@ namespace hudfix
         constexpr int MESSAGE_DAMAGE_GIVEN = 93974635; // UIDamageGivenToEnemyMessage
         constexpr int MESSAGE_KILLED_OTHER = -1963112840; // UINetworkKilledOtherPlayerMessage
         constexpr int MESSAGE_BULLET_HIT = 0x47F6C6F0; // BulletToSoldierComponentsHitMessage
-        constexpr int BULLET_HIT_BONE = 0x58;
-        constexpr int BULLET_HIT_SHOOTER = 0x5C;
         constexpr unsigned int HEAD_BONE = 1;
-        constexpr int COMPONENT_SOLDIER = 0x70; // the soldier a soldier component belongs to
-        constexpr int SOLDIER_TEAM = 0x78;
-        constexpr int PLAYER_MANAGER = 0x30;
 
         // ghetto
         constexpr long long KILL_WINDOW_MS = 300;
@@ -78,18 +70,6 @@ namespace hudfix
         constexpr int THICKEN_PASSES = 8;
         constexpr double THICKEN_PX = 1.5;
         
-        constexpr int CHARACTER_MATRIX = 0x44;
-        constexpr int GET_BOUNDS_SLOT = 13;
-        // a shape character's definition (GFxGenericCharacter::pDef, +0x78 in the 2010 build), OFF_vt_GFxConstShapeCharacterDef's styles
-        constexpr int CHARACTER_DEF = 0x7C;
-        constexpr int SHAPE_FILL_STYLES = 0x3C;
-        constexpr int SHAPE_LINE_STYLES = 0x40;
-        constexpr int SHAPE_FILL_COUNT = 0x44;
-        constexpr int SHAPE_LINE_COUNT = 0x48;
-        constexpr int FILL_STYLE_SIZE = 40;
-        constexpr int FILL_STYLE_COLOR = 4; // GColor 0xAARRGGBB, Type +0 is 0 for a solid fill
-        constexpr int LINE_STYLE_SIZE = 20;
-        constexpr int LINE_STYLE_COLOR = 8;
         constexpr unsigned int MAX_STYLES = 256;
 
         // a color transform per channel: mult, then add (0..1)
@@ -107,7 +87,6 @@ namespace hudfix
         };
         ShapeMatrix g_shapes[MAX_SHAPES];
         int g_shapeCount = 0;
-        constexpr int CHARACTER_CXFORM = 0x24; // GRenderer::Cxform, rows of { mult, add }
         struct ShapeCxform
         {
             fb::GFxCxform* cxform;
@@ -118,7 +97,6 @@ namespace hudfix
         ShapeCxform g_shapeCxforms[MAX_SHAPE_CXFORMS];
         int g_shapeCxformCount = 0;
         // Flash blend modes (GRenderer::BlendType)
-        constexpr int SPRITE_BLEND_MODE = 0xA8;
         constexpr unsigned char BLEND_NORMAL = 1;
         constexpr unsigned char BLEND_ADD = 8;
         struct BlendSave
@@ -128,8 +106,7 @@ namespace hudfix
         };
         BlendSave g_blendSaves[MAX_SHAPES];
         int g_blendSaveCount = 0;
-        // GFxASCharacter Flags (GetAcceptAnimMoves sub_1316D40)
-        constexpr int CHARACTER_FLAGS = 0xA0;
+        // GFxASCharacter m_asFlags (GetAcceptAnimMoves sub_1316D40)
         constexpr unsigned int ACCEPT_ANIM_MOVES = 0x1000;
 
         enum WidgetType
@@ -138,18 +115,9 @@ namespace hudfix
             STRING = 4
         };
 
-        // GFxSprite display list (getInstanceAtDepth sub_136DC90)
-        constexpr int CHARACTER_OBJECT = 124;
-        constexpr int CHARACTER_FLAGS_BYTE = 122;
+        // GFxCharacter m_flags
         constexpr unsigned char CHARACTER_SCRIPTED = 0x80;
-        constexpr int CHARACTER_HANDLE = 148;
-        constexpr int HANDLE_NAME = 8;
-        constexpr int SPRITE_CHILDREN = 196;
-        constexpr int SPRITE_CHILD_COUNT = 200;
-        // GFxCharacter Depth, a timeline mask's ClipDepth: it masks the children after it up to that depth (the hit test mask list sub_137EB70)
-        constexpr int CHARACTER_DEPTH = 0x14;
-        constexpr int CHARACTER_CLIP_DEPTH = 0x78;
-        constexpr int SPRITE_MASK = 0x1CC;
+        // GFxASCharacter m_asFlags
         constexpr unsigned int CHARACTER_VISIBLE = 0x1;
         constexpr unsigned int CHARACTER_USED_AS_MASK = 0x8000;
         constexpr float TWIPS = 20.0f;
@@ -206,7 +174,7 @@ namespace hudfix
             }
 
             // ObjectInterface: movie root +0x0, the value's data is the character handle
-            unsigned char* character()
+            fb::GFxASCharacter* character()
             {
                 void* movieRoot = m_value.m_objectInterface ? *static_cast<void**>(m_value.m_objectInterface) : nullptr;
                 return movieRoot ? reinterpret_cast<ResolveCharacterFn>(OFF_GFxCharacterHandle_resolve)(m_value.m_data, movieRoot) : nullptr;
@@ -214,8 +182,8 @@ namespace hudfix
 
             unsigned int* characterFlags()
             {
-                unsigned char* owner = character();
-                return owner ? reinterpret_cast<unsigned int*>(owner + CHARACTER_FLAGS) : nullptr;
+                fb::GFxASCharacter* owner = character();
+                return owner ? &owner->m_asFlags : nullptr;
             }
 
             // replace keeps only the alpha (add is in 0..255, Cxform::Transform
@@ -406,7 +374,7 @@ namespace hudfix
             bool varied = false;
         };
         // character -> what is known of it, the parts drawn this frame kept
-        std::unordered_map<const unsigned char*, OutlinePart> g_outlineParts;
+        std::unordered_map<const fb::GFxCharacter*, OutlinePart> g_outlineParts;
 
         Frame clipFrame(fb::GFxMovieView* movie, const std::string& path)
         {
@@ -1621,20 +1589,18 @@ namespace hudfix
         }
 
         // the solid colors of a SWF shape
-        void shapeColors(const unsigned char* def, std::vector<unsigned int>& colors)
+        void shapeColors(const fb::GFxConstShapeCharacterDef* def, std::vector<unsigned int>& colors)
         {
             {
-                const unsigned char* fills = *reinterpret_cast<const unsigned char* const*>(def + SHAPE_FILL_STYLES);
-                const unsigned int fillCount = *reinterpret_cast<const unsigned int*>(def + SHAPE_FILL_COUNT);
-                for (unsigned int f = 0; fills && f < fillCount && f < MAX_STYLES; ++f)
+                const fb::GFxFillStyle* fills = def->m_fillStyles;
+                for (unsigned int f = 0; fills && f < def->m_fillStyleCount && f < MAX_STYLES; ++f)
                 {
-                    if (fills[f * FILL_STYLE_SIZE] == 0)
-                        addColor(colors, *reinterpret_cast<const unsigned int*>(fills + f * FILL_STYLE_SIZE + FILL_STYLE_COLOR));
+                    if (fills[f].m_type == 0)
+                        addColor(colors, fills[f].m_color);
                 }
-                const unsigned char* lines = *reinterpret_cast<const unsigned char* const*>(def + SHAPE_LINE_STYLES);
-                const unsigned int lineCount = *reinterpret_cast<const unsigned int*>(def + SHAPE_LINE_COUNT);
-                for (unsigned int l = 0; lines && l < lineCount && l < MAX_STYLES; ++l)
-                    addColor(colors, *reinterpret_cast<const unsigned int*>(lines + l * LINE_STYLE_SIZE + LINE_STYLE_COLOR));
+                const fb::GFxLineStyle* lines = def->m_lineStyles;
+                for (unsigned int l = 0; lines && l < def->m_lineStyleCount && l < MAX_STYLES; ++l)
+                    addColor(colors, lines[l].m_color);
             }
         }
 
@@ -1647,29 +1613,29 @@ namespace hudfix
         // replaces its children's colors (not entered, they don't show), a SWF shape with its definition, anything else (text
         // fields) with none
         template <typename Visit>
-        void forEachColorNode(unsigned char* sprite, int levels, Visit&& visit)
+        void forEachColorNode(fb::GFxSprite* sprite, int levels, Visit&& visit)
         {
-            const void* spriteVtable = *reinterpret_cast<void* const*>(sprite);
-            unsigned char* const* children = *reinterpret_cast<unsigned char* const* const*>(sprite + SPRITE_CHILDREN);
-            const unsigned int count = *reinterpret_cast<const unsigned int*>(sprite + SPRITE_CHILD_COUNT);
+            const void* spriteVtable = sprite->m_vtable;
+            fb::GFxCharacter* const* children = sprite->m_children;
+            const unsigned int count = sprite->m_childCount;
             for (unsigned int i = 0; children && i < count && i < MAX_CHILDREN * 4; ++i)
             {
-                unsigned char* child = children[i];
+                fb::GFxCharacter* child = children[i];
                 if (!child)
                     continue;
-                if (*reinterpret_cast<void* const*>(child) == spriteVtable)
+                if (child->m_vtable == spriteVtable)
                 {
-                    if (replacesColor(*reinterpret_cast<const fb::GFxCxform*>(child + CHARACTER_CXFORM)))
+                    if (replacesColor(child->m_cxform))
                         visit(child, nullptr, false);
                     else if (levels > 1)
-                        forEachColorNode(child, levels - 1, visit);
+                        forEachColorNode(static_cast<fb::GFxSprite*>(child), levels - 1, visit);
                     continue;
                 }
-                const unsigned char* def = nullptr;
-                if (reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(child)) == OFF_vt_GFxGenericCharacter)
+                const fb::GFxConstShapeCharacterDef* def = nullptr;
+                if (reinterpret_cast<uintptr_t>(child->m_vtable) == OFF_vt_GFxGenericCharacter)
                 {
-                    def = *reinterpret_cast<const unsigned char* const*>(child + CHARACTER_DEF);
-                    if (!def || reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(def)) != OFF_vt_GFxConstShapeCharacterDef)
+                    def = static_cast<fb::GFxGenericCharacter*>(child)->m_def;
+                    if (!def || reinterpret_cast<uintptr_t>(def->m_vtable) != OFF_vt_GFxConstShapeCharacterDef)
                         continue;
                 }
                 visit(child, def, !def);
@@ -1723,20 +1689,21 @@ namespace hudfix
         }
 
         // every additive sprite from this one down drawn normal; how many
-        int drawNormal(unsigned char* sprite, int levels)
+        int drawNormal(fb::GFxCharacter* character, int levels)
         {
-            if (reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(sprite)) != OFF_vt_GFxSprite)
+            if (reinterpret_cast<uintptr_t>(character->m_vtable) != OFF_vt_GFxSprite)
                 return 0;
+            auto sprite = static_cast<fb::GFxSprite*>(character);
             int count = 0;
-            unsigned char* blend = sprite + SPRITE_BLEND_MODE;
+            unsigned char* blend = &sprite->m_blendMode;
             if (*blend == BLEND_ADD && g_blendSaveCount < MAX_SHAPES)
             {
                 g_blendSaves[g_blendSaveCount++] = { blend, *blend };
                 *blend = BLEND_NORMAL;
                 ++count;
             }
-            unsigned char* const* children = *reinterpret_cast<unsigned char* const* const*>(sprite + SPRITE_CHILDREN);
-            const unsigned int childCount = *reinterpret_cast<const unsigned int*>(sprite + SPRITE_CHILD_COUNT);
+            fb::GFxCharacter* const* children = sprite->m_children;
+            const unsigned int childCount = sprite->m_childCount;
             for (unsigned int i = 0; levels > 1 && children && i < childCount && i < MAX_CHILDREN * 4; ++i)
             {
                 if (children[i])
@@ -1769,7 +1736,7 @@ namespace hudfix
         // the widget's art recolored shape by shape: each shape's cxform followed by one taking what it shows to the color
         void recolorClip(Clip& clip, const Color& color, bool throughShader)
         {
-            unsigned char* character = clip.character();
+            fb::GFxASCharacter* character = clip.character();
             if (character)
                 drawNormal(character, SHAPE_LEVELS);
             const float brightness = throughShader ? 1.0f : settings().vehicleBrightness / 100.0f;
@@ -1787,9 +1754,9 @@ namespace hudfix
             float stockSaturation = -1.0f;
             if (character)
             {
-                forEachColorNode(character, SHAPE_LEVELS, [&](unsigned char* node, const unsigned char* def, bool text)
+                forEachColorNode(static_cast<fb::GFxSprite*>(character), SHAPE_LEVELS, [&](fb::GFxCharacter* node, const fb::GFxConstShapeCharacterDef* def, bool text)
                 {
-                    fb::GFxCxform* cxform = reinterpret_cast<fb::GFxCxform*>(node + CHARACTER_CXFORM);
+                    fb::GFxCxform* cxform = &node->m_cxform;
                     ArtShape art{ cxform, { }, text };
                     if (text)
                     {
@@ -1964,25 +1931,26 @@ namespace hudfix
         }
 
         // the named scripted clips of a sprite, by its display list
-        int childNames(const unsigned char* sprite, const char* (&names)[MAX_CHILDREN])
+        int childNames(fb::GFxASCharacter* character, const char* (&names)[MAX_CHILDREN])
         {
             int found = 0;
-            const unsigned char* object = sprite ? sprite + CHARACTER_OBJECT : nullptr;
-            if (!object || reinterpret_cast<ObjectTypeFn>((*reinterpret_cast<void* const* const*>(object))[2])(object) != OBJECT_SPRITE)
+            if (!character || character->m_object.getObjectType() != OBJECT_SPRITE)
                 return 0;
 
-            unsigned char* const* children = *reinterpret_cast<unsigned char* const* const*>(sprite + SPRITE_CHILDREN);
-            const unsigned int count = *reinterpret_cast<const unsigned int*>(sprite + SPRITE_CHILD_COUNT);
+            const auto sprite = static_cast<const fb::GFxSprite*>(character);
+            fb::GFxCharacter* const* children = sprite->m_children;
+            const unsigned int count = sprite->m_childCount;
             for (unsigned int i = 0; children && i < count && found < MAX_CHILDREN; ++i)
             {
-                unsigned char* child = children[i];
-                if (!child || !(child[CHARACTER_FLAGS_BYTE] & CHARACTER_SCRIPTED))
+                fb::GFxCharacter* child = children[i];
+                if (!child || !(child->m_flags & CHARACTER_SCRIPTED))
                     continue;
-                unsigned char* handle = *reinterpret_cast<unsigned char**>(child + CHARACTER_HANDLE);
+                auto scripted = static_cast<fb::GFxASCharacter*>(child);
+                fb::GFxCharacterHandle* handle = scripted->m_handle;
                 if (!handle)
-                    handle = reinterpret_cast<GetHandleFn>(OFF_GFxCharacter_getHandle)(child);
-                const unsigned char* node = handle ? *reinterpret_cast<unsigned char* const*>(handle + HANDLE_NAME) : nullptr;
-                const char* name = node ? *reinterpret_cast<const char* const*>(node) : nullptr;
+                    handle = scripted->getHandle();
+                const fb::GFxStringNode* node = handle ? handle->m_name : nullptr;
+                const char* name = node ? node->m_data : nullptr;
                 if (name && *name)
                     names[found++] = name;
             }
@@ -2057,17 +2025,16 @@ namespace hudfix
 
         struct Outline
         {
-            std::unordered_map<const unsigned char*, OutlinePart>& parts;
+            std::unordered_map<const fb::GFxCharacter*, OutlinePart>& parts;
             double bounds[4];
             bool any = false;
         };
 
         // a drawn part's bounds through at, in the widget's space (pixels), into the outline while they hold still
-        void addOutlinePart(unsigned char* character, const Affine& at, Outline& outline)
+        void addOutlinePart(fb::GFxCharacter* character, const Affine& at, Outline& outline)
         {
             float rect[4] = { };
-            using GetBoundsFn = float* (__thiscall*)(unsigned char* character, float* out, const float* matrix);
-            reinterpret_cast<GetBoundsFn>((*reinterpret_cast<void* const* const*>(character))[GET_BOUNDS_SLOT])(character, rect, at.m);
+            character->getBounds(rect, at.m);
             if (!(rect[2] > rect[0]) || !(rect[3] > rect[1]) || std::abs(rect[0]) > 1e7f || std::abs(rect[1]) > 1e7f) // empty
                 return;
             const std::array<double, 4> b = { rect[0] / TWIPS, rect[1] / TWIPS, rect[2] / TWIPS, rect[3] / TWIPS };
@@ -2089,34 +2056,35 @@ namespace hudfix
 
         // what the sprite draws: a mask stands for what it masks (the radar's map is far bigger than the circle showing it),
         // hidden sprites draw nothing
-        void walkOutline(unsigned char* sprite, const Affine& at, int levels, Outline& outline)
+        void walkOutline(fb::GFxSprite* sprite, const Affine& at, int levels, Outline& outline)
         {
-            unsigned char* const* children = *reinterpret_cast<unsigned char* const* const*>(sprite + SPRITE_CHILDREN);
-            const unsigned int count = *reinterpret_cast<const unsigned int*>(sprite + SPRITE_CHILD_COUNT);
+            fb::GFxCharacter* const* children = sprite->m_children;
+            const unsigned int count = sprite->m_childCount;
             int maskedTo = INT_MIN; // the children up to this depth are under a timeline mask
             for (unsigned int i = 0; children && i < count && i < MAX_CHILDREN * 4; ++i)
             {
-                unsigned char* child = children[i];
+                fb::GFxCharacter* child = children[i];
                 if (!child)
                     continue;
-                if (*reinterpret_cast<const int*>(child + CHARACTER_DEPTH) <= maskedTo)
+                if (child->m_depth <= maskedTo)
                     continue;
-                const Affine placed = then(at, reinterpret_cast<const float*>(child + CHARACTER_MATRIX));
-                if (const unsigned short clipDepth = *reinterpret_cast<const unsigned short*>(child + CHARACTER_CLIP_DEPTH))
+                const Affine placed = then(at, child->m_matrix);
+                if (const unsigned short clipDepth = child->m_clipDepth)
                 {
                     maskedTo = (std::max)(maskedTo, static_cast<int>(clipDepth));
                     addOutlinePart(child, placed, outline);
                     continue;
                 }
-                if (reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(child)) != OFF_vt_GFxSprite)
+                if (reinterpret_cast<uintptr_t>(child->m_vtable) != OFF_vt_GFxSprite)
                 {
                     addOutlinePart(child, placed, outline);
                     continue;
                 }
-                const unsigned int flags = *reinterpret_cast<const unsigned int*>(child + CHARACTER_FLAGS);
-                const auto& cxform = *reinterpret_cast<const fb::GFxCxform*>(child + CHARACTER_CXFORM);
+                auto childSprite = static_cast<fb::GFxSprite*>(child);
+                const unsigned int flags = childSprite->m_asFlags;
+                const fb::GFxCxform& cxform = child->m_cxform;
                 if (!(flags & CHARACTER_VISIBLE) || (cxform.m_rows[3][0] <= 0.0f && cxform.m_rows[3][1] <= 0.0f)
-                    || *reinterpret_cast<void* const*>(child + SPRITE_MASK)) // under a setMask mask, which is drawn on its own
+                    || childSprite->m_mask) // under a setMask mask, which is drawn on its own
                     continue;
                 // ActionScript turns or moves it (the jet radar's compass ring, the icons along its edge): no outline of the
                 // minimap even while it holds still, as on the runway
@@ -2125,18 +2093,18 @@ namespace hudfix
                 if (flags & CHARACTER_USED_AS_MASK)
                     addOutlinePart(child, placed, outline);
                 else if (levels > 1)
-                    walkOutline(child, placed, levels - 1, outline);
+                    walkOutline(childSprite, placed, levels - 1, outline);
             }
         }
 
         // the bounds of what the widget draws that holds still, in its own space; false when nothing is known
-        bool outlineBounds(Clip& widget, std::unordered_map<const unsigned char*, OutlinePart>& parts, double out[4])
+        bool outlineBounds(Clip& widget, std::unordered_map<const fb::GFxCharacter*, OutlinePart>& parts, double out[4])
         {
-            unsigned char* character = widget.character();
-            if (!character || reinterpret_cast<uintptr_t>(*reinterpret_cast<void* const*>(character)) != OFF_vt_GFxSprite)
+            fb::GFxASCharacter* character = widget.character();
+            if (!character || reinterpret_cast<uintptr_t>(character->m_vtable) != OFF_vt_GFxSprite)
                 return false;
             Outline outline{ parts };
-            walkOutline(character, Affine{ }, OUTLINE_LEVELS, outline);
+            walkOutline(static_cast<fb::GFxSprite*>(character), Affine{ }, OUTLINE_LEVELS, outline);
             if (outline.any)
                 std::copy(outline.bounds, outline.bounds + 4, out);
             return outline.any;
@@ -2155,7 +2123,7 @@ namespace hudfix
             g_minimapOutline.clear();
             g_backgroundBounds.clear();
             std::unordered_map<std::string, ChildSet> children;
-            std::unordered_map<const unsigned char*, OutlinePart> outlineParts;
+            std::unordered_map<const fb::GFxCharacter*, OutlinePart> outlineParts;
             const ULONGLONG now = GetTickCount64();
             forEachScaledWidget(movie, [&children, &outlineParts, now](const WidgetContext& c)
             {
@@ -2490,31 +2458,30 @@ namespace hudfix
         }
 
         // every shape below the sprite, a sprite being a child of the sprite's own class; each scaled around the center of its bounds
-        void thinShapes(unsigned char* sprite, float factor, int levels)
+        void thinShapes(fb::GFxSprite* sprite, float factor, int levels)
         {
 
-            const void* spriteVtable = *reinterpret_cast<void* const*>(sprite);
-            unsigned char* const* children = *reinterpret_cast<unsigned char* const* const*>(sprite + SPRITE_CHILDREN);
-            const unsigned int count = *reinterpret_cast<const unsigned int*>(sprite + SPRITE_CHILD_COUNT);
+            const void* spriteVtable = sprite->m_vtable;
+            fb::GFxCharacter* const* children = sprite->m_children;
+            const unsigned int count = sprite->m_childCount;
             for (unsigned int i = 0; children && i < count && i < MAX_CHILDREN * 4 && g_shapeCount < MAX_SHAPES; ++i)
             {
-                unsigned char* child = children[i];
+                fb::GFxCharacter* child = children[i];
                 if (!child)
                     continue;
-                if (*reinterpret_cast<void* const*>(child) == spriteVtable)
+                if (child->m_vtable == spriteVtable)
                 {
                     if (levels > 1)
-                        thinShapes(child, factor, levels - 1);
+                        thinShapes(static_cast<fb::GFxSprite*>(child), factor, levels - 1);
                     continue;
                 }
                 float identity[6] = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
                 float rect[4] = { };
-                using GetBoundsFn = float* (__thiscall*)(unsigned char* character, float* out, const float* matrix);
-                reinterpret_cast<GetBoundsFn>((*reinterpret_cast<void* const* const*>(child))[GET_BOUNDS_SLOT])(child, rect, identity);
+                child->getBounds(rect, identity);
                 if (!(rect[2] > rect[0]) || !(rect[3] > rect[1]))
                     continue;
 
-                float* m = reinterpret_cast<float*>(child + CHARACTER_MATRIX);
+                float* m = child->m_matrix;
                 ShapeMatrix& shape = g_shapes[g_shapeCount++];
                 shape.matrix = m;
                 std::memcpy(shape.saved, m, sizeof(shape.saved));
@@ -2549,8 +2516,8 @@ namespace hudfix
                     || !crosshair.resolve(movie, path.c_str()))
                     continue;
 
-                if (unsigned char* character = crosshair.character())
-                    thinShapes(character, k, SHAPE_LEVELS);
+                if (fb::GFxASCharacter* character = crosshair.character())
+                    thinShapes(static_cast<fb::GFxSprite*>(character), k, SHAPE_LEVELS);
             }
         }
 
@@ -2710,9 +2677,9 @@ namespace hudfix
         }
 
         // a kill wins over a headshot, a headshot is used up by the damage it confirms
-        void __fastcall hkWeaponMessage(void* _this, void*, const unsigned char* message)
+        void __fastcall hkWeaponMessage(void* _this, void*, const fb::Message* message)
         {
-            if (*reinterpret_cast<const int*>(message + 8) == MESSAGE_DAMAGE_GIVEN)
+            if (message->m_type == MESSAGE_DAMAGE_GIVEN)
             {
                 const long long now = nowMs();
                 if (now - g_lastKillTime < KILL_WINDOW_MS)
@@ -2726,9 +2693,9 @@ namespace hudfix
             oWeaponMessage(_this, message);
         }
 
-        void __fastcall hkHudTextMessage(void* _this, void*, const unsigned char* message)
+        void __fastcall hkHudTextMessage(void* _this, void*, const fb::Message* message)
         {
-            if (*reinterpret_cast<const int*>(message + 8) == MESSAGE_KILLED_OTHER)
+            if (message->m_type == MESSAGE_KILLED_OTHER)
             {
                 g_lastKillTime = nowMs();
                 g_hitMarker = KillMarkers; // the killing hit's marker may already be up
@@ -2736,20 +2703,21 @@ namespace hudfix
             oHudTextMessage(_this, message);
         }
 
-        void __fastcall hkBulletHit(unsigned char* _this, void*, const unsigned char* message)
+        void __fastcall hkBulletHit(fb::ClientSoldierComponent* _this, void*, const fb::Message* message)
         {
-            if (*reinterpret_cast<const int*>(message + 8) == MESSAGE_BULLET_HIT)
+            if (message->m_type == MESSAGE_BULLET_HIT)
             {
-                const unsigned int bone = *reinterpret_cast<const unsigned int*>(message + BULLET_HIT_BONE);
-                const unsigned char* context = *reinterpret_cast<unsigned char* const*>(OFF_g_clientGameContext);
-                void* players = context ? *reinterpret_cast<void* const*>(context + PLAYER_MANAGER) : nullptr;
-                fb::ClientPlayer* shooter = players ? reinterpret_cast<GetPlayerFn>(OFF_ClientPlayerManager_getPlayer)(players, *reinterpret_cast<const unsigned int*>(message + BULLET_HIT_SHOOTER)) : nullptr;
+                const auto bullet = static_cast<const fb::BulletToSoldierComponentsHitMessage*>(message);
+                const unsigned int bone = bullet->m_boneType;
+                const fb::ClientGameContext* context = fb::ClientGameContext::GetInstance();
+                fb::ClientPlayerManager* players = context ? context->m_playerManager : nullptr;
+                fb::ClientPlayer* shooter = players ? players->getPlayer(bullet->m_shooterPlayerId) : nullptr;
                 fb::ClientPlayer* local = fb::ClientPlayer::GetLocal();
                 if (shooter && shooter == local)
                 {
-                    const auto me = reinterpret_cast<const unsigned char*>(local->getSoldier());
-                    const auto hit = *reinterpret_cast<const unsigned char* const*>(_this + COMPONENT_SOLDIER);
-                    const bool teammate = me && hit && *reinterpret_cast<const int*>(me + SOLDIER_TEAM) == *reinterpret_cast<const int*>(hit + SOLDIER_TEAM);
+                    const fb::ClientSoldierEntity* me = local->getSoldier();
+                    const fb::ClientSoldierEntity* hit = _this->m_soldier;
+                    const bool teammate = me && hit && me->m_teamId == hit->m_teamId;
                     if (bone == HEAD_BONE && !teammate)
                         g_lastHeadshotTime = nowMs();
                 }
