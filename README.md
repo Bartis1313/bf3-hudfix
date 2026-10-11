@@ -74,8 +74,7 @@ tickets instead (on foot it ends at the minimap, in air vehicles it is hidden).
 
 Default or any color from a color picker (with a hex field) for the crosshair, the 1st and 3rd person vehicle
 crosshair, the vehicle HUD and the hit markers, with separate hit marker colors for a hit, a headshot and a kill
-(a headshot kill counts as a kill). Headshots come from your own bullets' hit bone, since the server never says which
-hits were headshots.
+(a headshot kill counts as a kill)
 
 - The color tints the widget's own colors, so white parts take the color and dark parts stay dark.
 - The 1st person vehicle HUD's art is moved to the color. Where it is drawn into a cockpit's HUD mesh, the mesh's
