@@ -77,8 +77,15 @@ namespace hudfix
         float uniformLookSpeed(const fb::ZoomLevelData* zoom, const ZoomOriginal& original)
         {
             constexpr double HALF_ANGLE = std::numbers::pi / 360.0;
-            const double aimed = std::tan(cameraFov(zoom->m_fieldOfView, zoom->m_allowFieldOfViewScaling) * HALF_ANGLE);
-            const double hip = std::tan(cameraFov(original.hipFov, original.hipScaling) * HALF_ANGLE);
+            const double coefficient = settings().uniformAimingCoefficient / 100.0;
+            // 0 is the zoom ratio, the limit of atan(c * x) / c
+            const auto angle = [coefficient](double fov)
+            {
+                const double half = std::tan(fov * HALF_ANGLE);
+                return coefficient > 0.0 ? std::atan(coefficient * half) : half;
+            };
+            const double aimed = angle(cameraFov(zoom->m_fieldOfView, zoom->m_allowFieldOfViewScaling));
+            const double hip = angle(cameraFov(original.hipFov, original.hipScaling));
             return hip > 0.0 ? static_cast<float>(original.hipLookSpeed * aimed / hip) : original.lookSpeed;
         }
 
@@ -159,8 +166,8 @@ namespace hudfix
         for (const auto& [zoom, original] : g_zoomOriginals)
             applyZoomLevel(zoom, original);
         g_zoomPatched = nullptr;
-        log("sight zoom {}, uniform aiming {}, zoom sensitivity {}% on {} zoom levels", SIGHT_ZOOM_NAMES[settings().sightZoom], settings().uniformAiming,
-            settings().zoomSensitivity, g_zoomOriginals.size());
+        log("sight zoom {}, uniform aiming {} coefficient {}%, zoom sensitivity {}% on {} zoom levels", SIGHT_ZOOM_NAMES[settings().sightZoom],
+            settings().uniformAiming, settings().uniformAimingCoefficient, settings().zoomSensitivity, g_zoomOriginals.size());
     }
 
     void installGameplayHooks()

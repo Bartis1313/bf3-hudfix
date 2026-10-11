@@ -40,6 +40,7 @@ namespace hudfix
         constexpr const char* SIGHT_ZOOM_KEY = "HudFixSightZoom";
         constexpr const char* UNIFORM_AIMING_KEY = "HudFixUniformAiming";
         constexpr const char* ZOOM_SENSITIVITY_KEY = "HudFixZoomSensitivity";
+        constexpr const char* UNIFORM_AIMING_COEFFICIENT_KEY = "HudFixUniformAimingCoefficient";
         constexpr const char* VEHICLE_BRIGHTNESS_KEY = "HudFixVehicleBrightness";
         constexpr const char* TICKET_PANEL_KEY = "HudFixRemoveTicketPanel";
         constexpr const char* ELEMENT_KEYS[ElementCount] = 
@@ -235,6 +236,9 @@ namespace hudfix
             int uniformAiming = g_settings.uniformAiming ? 1 : 0;
             sync(UNIFORM_AIMING_KEY, uniformAiming);
             g_settings.uniformAiming = uniformAiming != 0;
+            sync(UNIFORM_AIMING_COEFFICIENT_KEY, g_settings.uniformAimingCoefficient);
+            g_settings.uniformAimingCoefficient = std::clamp(g_settings.uniformAimingCoefficient, UNIFORM_AIMING_COEFFICIENTS[0],
+                UNIFORM_AIMING_COEFFICIENTS[UNIFORM_AIMING_COEFFICIENT_COUNT - 1]);
             sync(ZOOM_SENSITIVITY_KEY, g_settings.zoomSensitivity);
             g_settings.zoomSensitivity = std::clamp(g_settings.zoomSensitivity, ZOOM_SENSITIVITY_MIN, ZOOM_SENSITIVITY_MAX);
             g_settings.sightZoom = std::clamp(g_settings.sightZoom, 0, SightZoomCount - 1);
@@ -326,6 +330,7 @@ namespace hudfix
         set(group, SCALE_KEY, static_cast<float>(g_settings.scale));
         set(group, SIGHT_ZOOM_KEY, static_cast<float>(g_settings.sightZoom));
         set(group, UNIFORM_AIMING_KEY, g_settings.uniformAiming ? 1.0f : 0.0f);
+        set(group, UNIFORM_AIMING_COEFFICIENT_KEY, static_cast<float>(g_settings.uniformAimingCoefficient));
         set(group, ZOOM_SENSITIVITY_KEY, static_cast<float>(g_settings.zoomSensitivity));
         set(group, VEHICLE_BRIGHTNESS_KEY, static_cast<float>(g_settings.vehicleBrightness));
         set(group, TICKET_PANEL_KEY, g_settings.removeTicketPanel ? 1.0f : 0.0f);

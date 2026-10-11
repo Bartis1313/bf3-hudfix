@@ -45,6 +45,7 @@ namespace hudfix
             Brightness,
             TicketPanel,
             UniformAiming,
+            UniformAimingCoefficient,
             ZoomSensitivity
         };
 
@@ -103,6 +104,7 @@ namespace hudfix
             { "HudFixScopeSize", "SCOPE SIZE", Kind::Element, Scope, TabAim },
             { "HudFixSightZoom", "SIGHT ZOOM", Kind::SightZoom, -1, TabAim },
             { "HudFixUniformAiming", "UNIFORM AIMING", Kind::UniformAiming, -1, TabAim },
+            { "HudFixUniformAimingCoefficient", "AIM COEFFICIENT", Kind::UniformAimingCoefficient, -1, TabAim },
             { "HudFixZoomSensitivity", "ZOOM SENSITIVITY", Kind::ZoomSensitivity, -1, TabAim },
             { "HudFixHitMarkers", "HIT MARKER SIZE", Kind::Element, HitMarkers, TabAim },
             { "HudFixHitMarkersColor", "HIT MARKER COLOR", Kind::Color, HitColor, TabAim },
@@ -245,6 +247,8 @@ namespace hudfix
             case Kind::TicketPanel:
             case Kind::UniformAiming:
                 return 2;
+            case Kind::UniformAimingCoefficient:
+                return UNIFORM_AIMING_COEFFICIENT_COUNT;
             case Kind::ZoomSensitivity:
                 return (ZOOM_SENSITIVITY_MAX - ZOOM_SENSITIVITY_MIN) / ZOOM_SENSITIVITY_STEP + 1;
             case Kind::SightZoom:
@@ -278,6 +282,8 @@ namespace hudfix
                 return VEHICLE_BRIGHTNESS_MIN + index * ELEMENT_STEP;
             case Kind::ZoomSensitivity:
                 return ZOOM_SENSITIVITY_MIN + index * ZOOM_SENSITIVITY_STEP;
+            case Kind::UniformAimingCoefficient:
+                return UNIFORM_AIMING_COEFFICIENTS[index];
             default:
                 return ELEMENT_MIN + index * ELEMENT_STEP;
             }
@@ -293,6 +299,17 @@ namespace hudfix
                 return settings().removeTicketPanel ? 1 : 0;
             case Kind::UniformAiming:
                 return settings().uniformAiming ? 1 : 0;
+            case Kind::UniformAimingCoefficient:
+            {
+                // the nearest listed value
+                int nearest = 0;
+                for (int i = 1; i < UNIFORM_AIMING_COEFFICIENT_COUNT; ++i)
+                {
+                    if (std::abs(UNIFORM_AIMING_COEFFICIENTS[i] - settings().uniformAimingCoefficient) < std::abs(UNIFORM_AIMING_COEFFICIENTS[nearest] - settings().uniformAimingCoefficient))
+                        nearest = i;
+                }
+                return nearest;
+            }
             case Kind::ZoomSensitivity:
                 return std::clamp((settings().zoomSensitivity - ZOOM_SENSITIVITY_MIN + ZOOM_SENSITIVITY_STEP / 2) / ZOOM_SENSITIVITY_STEP, 0, itemCount(row) - 1);
             case Kind::SightZoom:
@@ -431,6 +448,10 @@ namespace hudfix
                 break;
             case Kind::UniformAiming:
                 settings().uniformAiming = index == 1;
+                applyZoomFov();
+                break;
+            case Kind::UniformAimingCoefficient:
+                settings().uniformAimingCoefficient = percentOfItem(row, index);
                 applyZoomFov();
                 break;
             case Kind::ZoomSensitivity:

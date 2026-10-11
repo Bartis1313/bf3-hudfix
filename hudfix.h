@@ -58,6 +58,7 @@ namespace hudfix
         bool autoScale = true; // s = min(w/1280, h/720)
         int sightZoom = 0;
         bool uniformAiming = false;
+        int uniformAimingCoefficient = 133; // percent, BF4's default
         int zoomSensitivity = 100;
         int vehicleBrightness = 100; // percent of the stock vehicle HUD's brightness a vehicle color gets
         bool removeTicketPanel = false; // no panel behind the tickets: on foot it ends at the minimap, the air vehicles' is hidden
@@ -115,6 +116,10 @@ namespace hudfix
     constexpr int ZOOM_SENSITIVITY_MIN = 10;
     constexpr int ZOOM_SENSITIVITY_MAX = 300;
     constexpr int ZOOM_SENSITIVITY_STEP = 5;
+
+    // other rations makes no sense
+    constexpr int UNIFORM_AIMING_COEFFICIENTS[] = { 0, 25, 50, 75, 100, 133, 150, 178, 200 };
+    constexpr int UNIFORM_AIMING_COEFFICIENT_COUNT = static_cast<int>(std::size(UNIFORM_AIMING_COEFFICIENTS));
 
     constexpr int VEHICLE_BRIGHTNESS_MIN = 50;
     constexpr int VEHICLE_BRIGHTNESS_MAX = 200;
