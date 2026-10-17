@@ -1,5 +1,6 @@
 #include "hudfix.h"
 
+#include <atomic>
 #include <cmath>
 #include <mutex>
 #include <numbers>
@@ -17,6 +18,10 @@ namespace hudfix
         using UpdateZoomFn = void(__thiscall*)(fb::ClientSoldierAimingSimulation* aiming, int a, int b, int c, int d);
         UpdateZoomFn oUpdateZoom = nullptr;
 
+        using FindOptionFn = fb::ProfileOptionDataFloat*(__thiscall*)(fb::SettingsGroup* group, const char* name);
+        constexpr int RENDER_GROUP = 1;
+        constexpr float MAX_FIELD_OF_VIEW = 120.0f;
+
         // the unzoomed level's fov when a weapon has none
         constexpr float DEFAULT_FOV = 55.0f;
         // zoom levels this wide are the unmagnified sights (irons, red dots, IRNV), the 2x holo is 32
@@ -33,8 +38,12 @@ namespace hudfix
             float hipLookSpeed;
         };
 
-        float g_aimingFovMultiplier = 1.0f;
-        float g_sliderFovMultiplier = 1.0f;
+        using UpdateAimerFn = void(__thiscall*)(void* aimer, fb::AimingInput* input);
+        UpdateAimerFn oUpdateAimer = nullptr;
+
+        float g_aimerFov = 0.0f;
+        float g_aimerLoggedFov = 0.0f;
+
         std::unordered_map<fb::ZoomLevelData*, ZoomOriginal> g_zoomOriginals;
         const fb::SoldierAimingSimulationData* g_zoomPatched = nullptr; // the weapon data last patched
         std::mutex g_zoomLock;
@@ -68,25 +77,39 @@ namespace hudfix
             return level ? level->fovMultiplier() : 1.0f;
         }
 
-        // the camera's fov at a zoom level
-        double cameraFov(float fov, bool scaling)
+        std::atomic<bool> g_fieldOfViewChanged{ false };
+
+        // the camera takes a new slider value only on a zoom change, so the current zoom level's fov is asked for again the
+        // way updateZoom asks for it
+        void requestZoomFov(const fb::ClientSoldierAimingSimulation* aiming)
         {
-            return g_aimingFovMultiplier * fov * (scaling ? g_sliderFovMultiplier : 1.0f);
+            const fb::SoldierAimingSimulationData* data = aiming->m_data;
+            fb::ClientCameraManager* camera = fb::ClientCameraManager::GetInstance();
+            if (!data || !camera || aiming->m_zoomLevel < 0 || static_cast<uint32_t>(aiming->m_zoomLevel) >= data->m_zoomLevels.size())
+                return;
+            const fb::ZoomLevelData* zoom = data->m_zoomLevels.m_firstElement[aiming->m_zoomLevel];
+            if (!zoom)
+                return;
+
+            fb::FovRequest request{ };
+            request.m_fov = aiming->m_fovMultiplier * zoom->m_fieldOfView * (zoom->m_allowFieldOfViewScaling ? sliderFovMultiplier() : 1.0f);
+            request.m_transitionTime = aiming->m_fovTransitionTime;
+            request.m_active = true;
+            camera->requestFov(&request);
+            log("field of view: zoom level {} camera fov {:.2f}", aiming->m_zoomLevel, request.m_fov);
         }
 
-        float uniformLookSpeed(const fb::ZoomLevelData* zoom, const ZoomOriginal& original)
+        // copied from bf4 bin sub_140FA1E80: 0 is the zoom ratio, the limit of atan(c * x) / c, 1 the fov ratio
+        double uniformRatio(double hipFov, double fov)
         {
             constexpr double HALF_ANGLE = std::numbers::pi / 360.0;
             const double coefficient = settings().uniformAimingCoefficient / 100.0;
-            // 0 is the zoom ratio, the limit of atan(c * x) / c
             const auto angle = [coefficient](double fov)
             {
                 const double half = std::tan(fov * HALF_ANGLE);
                 return coefficient > 0.0 ? std::atan(coefficient * half) : half;
             };
-            const double aimed = angle(cameraFov(zoom->m_fieldOfView, zoom->m_allowFieldOfViewScaling));
-            const double hip = angle(cameraFov(original.hipFov, original.hipScaling));
-            return hip > 0.0 ? static_cast<float>(original.hipLookSpeed * aimed / hip) : original.lookSpeed;
+            return angle(fov) / angle(hipFov);
         }
 
         void applyZoomLevel(fb::ZoomLevelData* zoom, const ZoomOriginal& original)
@@ -95,22 +118,43 @@ namespace hudfix
             const bool hipfire = mode == SightZoomOff && original.fov >= SIGHT_FOV;
             zoom->m_fieldOfView = hipfire ? original.hipFov : original.fov;
             zoom->m_allowFieldOfViewScaling = hipfire ? original.hipScaling : original.scaling || mode == SightZoomScaled;
-            const float lookSpeed = settings().uniformAiming ? uniformLookSpeed(zoom, original) : original.lookSpeed;
+            const float lookSpeed = settings().uniformAiming ? original.hipLookSpeed : original.lookSpeed;
             zoom->m_lookSpeedMultiplier = lookSpeed * settings().zoomSensitivity / 100.0f;
+        }
+
+        // copied from bf4 bin sub_140FA2660 replaces the look speed every frame by the ratio of the camera's fov of the moment to the
+        // hipfire fov, so it follows the fov through the zoom transitions, unzoomed included
+        void __fastcall hkUpdateAimer(void* _this, void*, fb::AimingInput* input)
+        {
+            const fb::ClientSoldierAimingSimulation* aiming = fb::ClientSoldierAimingSimulation::fromInput(input);
+            const fb::SoldierAimingSimulationData* data = aiming->m_data;
+            const fb::ZoomLevelData* hip = data && data->m_zoomLevels.size() ? data->m_zoomLevels.m_firstElement[0] : nullptr;
+            fb::ClientCameraManager* camera = fb::ClientCameraManager::GetInstance();
+            if (hip && camera)
+            {
+                const float lookSpeed = input->m_lookSpeed;
+                const double hipFov = hip->m_fieldOfView * (hip->m_allowFieldOfViewScaling ? sliderFovMultiplier() : 1.0f);
+                const float fov = camera->getFov();
+                const double ratio = hipFov > 0.0 && fov > 0.0 ? uniformRatio(hipFov, fov) : 1.0;
+                if (settings().uniformAiming)
+                    input->m_lookSpeed *= static_cast<float>(ratio);
+
+                // only on new values
+                if (fov == g_aimerFov && std::abs(fov - g_aimerLoggedFov) > 0.5f)
+                {
+                    g_aimerLoggedFov = fov;
+                    log("aimer: zoom level {} camera fov {:.2f}, hipfire fov {:.2f} (level {:.1f} scaling {}, slider {:.3f}, aiming {:.3f}), ratio {:.3f}, look speed {:.3f} -> {:.3f}",
+                        aiming->m_zoomLevel, fov, hipFov, hip->m_fieldOfView, hip->m_allowFieldOfViewScaling, sliderFovMultiplier(), aiming->m_fovMultiplier,
+                        ratio, lookSpeed, input->m_lookSpeed);
+                }
+                g_aimerFov = fov;
+            }
+            oUpdateAimer(_this, input);
         }
 
         void __fastcall hkUpdateZoom(fb::ClientSoldierAimingSimulation* _this, void*, int a, int b, int c, int d)
         {
             const fb::SoldierAimingSimulationData* data = _this->m_data;
-            const float aiming = _this->m_fovMultiplier > 0.0f ? _this->m_fovMultiplier : 1.0f;
-            const float slider = sliderFovMultiplier();
-            if (aiming != g_aimingFovMultiplier || slider != g_sliderFovMultiplier)
-            {
-                std::lock_guard lock(g_zoomLock);
-                g_aimingFovMultiplier = aiming;
-                g_sliderFovMultiplier = slider;
-                g_zoomPatched = nullptr;
-            }
             if (data && data != g_zoomPatched && data->m_zoomLevels.size())
             {
                 std::lock_guard lock(g_zoomLock);
@@ -132,6 +176,8 @@ namespace hudfix
                 }
             }
             oUpdateZoom(_this, a, b, c, d);
+            if (g_fieldOfViewChanged.exchange(false))
+                requestZoomFov(_this);
         }
 
         // credits FlashHit
@@ -149,6 +195,30 @@ namespace hudfix
             FlushInstructionCache(GetCurrentProcess(), operand, sizeof(*operand));
             log("capture progress epsilon {}", CAPTURE_PROGRESS_EPSILON);
         }
+    }
+
+    void raiseFieldOfViewMax()
+    {
+        fb::ProfileOptions* game = fb::ProfileOptions::GetInstance();
+        auto option = game ? reinterpret_cast<FindOptionFn>(OFF_SettingsGroup_findOption)(&game->m_groups[RENDER_GROUP], "FieldOfView") : nullptr;
+        if (!option)
+        {
+            static bool warned = false;
+            if (!warned)
+                log("field of view option not found");
+            warned = true;
+            return;
+        }
+        if (option->m_max >= MAX_FIELD_OF_VIEW)
+            return;
+
+        log("field of view max {} -> {}", option->m_max, MAX_FIELD_OF_VIEW);
+        option->m_max = MAX_FIELD_OF_VIEW;
+    }
+
+    void refreshFieldOfView()
+    {
+        g_fieldOfViewChanged = true;
     }
 
     void forgetZoomLevels(fb::InternalDatabasePartition* partition)
@@ -174,6 +244,7 @@ namespace hudfix
     {
         hook(OFF_HealthModuleStateRevive_enter, hkReviveEnter, &oReviveEnter);
         hook(OFF_ClientSoldierAimingSimulation_updateZoom, hkUpdateZoom, &oUpdateZoom);
+        hook(OFF_SoldierAimer_update, hkUpdateAimer, &oUpdateAimer);
         patchCaptureProgress();
     }
 }

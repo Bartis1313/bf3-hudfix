@@ -53,7 +53,9 @@ tickets instead (on foot it ends at the minimap, in air vehicles it is hidden).
 
 ### Opacity
 
-- **Per-element opacity** (10% - 100%, 10% steps) for the same elements, except the minimap (the game has its own option)
+- **Per-element opacity** (0% - 100%, 10% steps) for the same elements
+- **Map BG opacity**: the panel behind the minimap (and the tickets); the map itself fades with the game's own
+  minimap opacity option
 - **Opacity when scoped** (0% - 100% of the element's opacity) for team and enemy nametags, team and enemy health bars,
   revive icons and flags
 
@@ -66,9 +68,18 @@ tickets instead (on foot it ends at the minimap, in air vehicles it is hidden).
     longer shrinks when you aim; magnified scopes still zoom as in the game
 - **Uniform aiming** crosshair sens = aiming sens
 - **Zoom sensitivity** (10% - 300%, 5% steps): a multiplier on the aiming and scoped sensitivity, on top of either
-- **Sight color** for red dot and holo dots and the lit marks of scopes (the ACOG's triangle); the lines of magnified
-  scopes keep their own
-- **Scope size**: the size of the sight's and scope's reticle
+- **Sight color** for red dot and holo dots and the lit marks of scopes (the ACOG's triangle), with the game's own glow;
+  the lines of magnified scopes keep their own
+- **Scope size** (50% - 150%, 2% steps): the size of the sight's and scope's reticle
+- **Uniform sights**: the same sight shows its reticle at the same size on every gun (the game's size depends on how
+  far the sight sits from your eye and on the gun's aiming field of view)
+
+### Visuals
+
+- **No blue tint**: the maps' color correction at neutral (contrast, saturation and brightness at 1)
+- **No color grading**: the maps' color grading texture off
+
+For more visual edits use [bf-visual-editor](https://github.com/Bartis1313/bf-visual-editor).
 
 ### Colors
 
@@ -94,6 +105,13 @@ crosshair, the vehicle HUD and the hit markers, with separate hit marker colors 
 
 - **Crabwalk / unkillable revived players** (credits gm_fix).
 - **Flag capture progress** (credits [FlashHit](https://github.com/FlashHit)).
+
+### Game option fixes
+
+- **Field of view**: the slider goes up to 120 instead of 90, and a change applies right away instead of on your next
+  aim or respawn.
+- **Minimap opacity**: the game's option only faded the satellite detail texture, which the default minimap type doesn't
+  draw, so it did nothing. Now it fades the whole map texture (base map and vegetation too).
 
 ## Settings
 

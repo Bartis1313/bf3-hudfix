@@ -6,6 +6,10 @@
 #include <cstdint>
 
 #define OFF_g_dxRenderer 0x023577D4
+#define OFF_g_visualEnvironmentManager 0x023B6844 // VisualEnvironmentManager*
+#define OFF_VisualEnvironmentManager_update 0x01797FD0 // thiscall (const void* 0x480 bytes) retn 4: only when m_dirty (cleared after) resets +0xA10 and lerps every state into it
+#define OFF_ColorCorrection_refresh 0x01F21E10 // thiscall (ColorCorrectionState*) retn 4, this = the component's m_bindings: rereads the state from the data's fields
+#define OFF_vt_ColorCorrectionComponent 0x0213AB98 // ctor sub_F7FCF0 sets VisualEnvironmentState::m_colorCorrection (entity +0x5C) to its state
 #define OFF_InternalDatabasePartition_onPartitionLoaded 0x004D5790
 #define OFF_InternalDatabasePartition_releaseInstances 0x004E4480 // thiscall (int unused) retn 4, vtable 0x20730E0 slot 1: releases every instance (+0x3C..+0x40) as the partition unloads
 #define OFF_g_shaderSystem 0x02356C90 // IShaderSystem* (DxShaderSystem): ShaderDatabase* vector at +0xC..+0x10 (addDatabase sub_6A5070, vtable 0x20981A8 slot 17); getPath slot 1, getSettings slot 3
@@ -19,7 +23,11 @@
 #define OFF_ClientPlayer_getSoldier 0x00FE1210 // thiscall () -> ClientSoldierEntity*: the weak pointer at +0x3C0, null when not on foot
 #define OFF_ClientSoldierWeaponsComponent_currentWeapon 0x01049B10 // thiscall () -> ClientSoldierWeapon*: list at +0xBC by the weapon handler's index
 #define OFF_ClientSoldierWeapon_vtable 0x02144710 // dtor sub_1041760; init sub_1043080 builds an attachment holder per socket (sub_1038E90)
+#define OFF_ClientSoldierWeapon_renderFov 0x0102C220 // thiscall (bool zoomed) retn 4 -> float (st0): RenderFov, or when zoomed the zoom modifier's ZoomRenderFov (+0x12C -> +8) / the data's
+#define OFF_AttachmentHolder_draw 0x0103F350 // thiscall (bool 1p, bool zoomed, pose*, draw list*, bool) retn 14h: every frame, the record transforms on the holder's bone into the draw list (sub_103F1E0)
 #define OFF_ClientSoldierAimingSimulation_updateZoom 0x010D5590 // thiscall (4 dwords) retn 10h: sets the camera fov from the zoom level when it changes
+#define OFF_SoldierAimer_update 0x010D1B30 // thiscall (AimingInput*) retn 4: turns the frame's input into yaw / pitch with the input's look speed, sub_10D6D10 only
+#define OFF_g_cameraManager 0x0238AADC // ClientCameraManager*
 #define OFF_g_clientGameContext 0x02380B58 // ClientGameContext* global
 #define OFF_ClientPlayerManager_getPlayer 0x00FDCB40 // thiscall (id) -> ClientPlayer*, null past the player count
 #define OFF_fovMultiplier 0x00F87720 // Level::thiscall () -> float (st0): 1.0 when not m_isMultiplayer (sub_118DAA0) or m_isCoop (sub_118DAC0), else GameRenderSettings +0x28
@@ -100,6 +108,60 @@ namespace fb
 		return type ? **static_cast<const char***>(type) : nullptr;
 	}
 
+	struct ColorCorrectionState
+	{
+		float m_contrast[4]; //0x0000 Vec3, the blue tint is these per channel
+		float m_saturation[4]; //0x0010
+		float m_brightness[4]; //0x0020
+		char _0x0030[0xC];
+		bool m_colorGradingEnable; //0x003C
+		char _0x003D[0x3];
+	};//Size=0x0040
+
+	class ColorCorrectionComponent
+	{
+	public:
+		void* m_vtable; //0x0000 OFF_vt_ColorCorrectionComponent
+		char _0x0004[0xC];
+		ColorCorrectionState m_state; //0x0010
+		char m_bindings[0x4]; //0x0050
+
+		bool isValid() const { return m_vtable == reinterpret_cast<void*>(OFF_vt_ColorCorrectionComponent); }
+
+		// back to the data's values
+		void refresh()
+		{
+			reinterpret_cast<void(__thiscall*)(void*, ColorCorrectionState*)>(OFF_ColorCorrection_refresh)(m_bindings, &m_state);
+		}
+
+		static ColorCorrectionComponent* fromState(ColorCorrectionState* state)
+		{
+			return reinterpret_cast<ColorCorrectionComponent*>(reinterpret_cast<char*>(state) - offsetof(ColorCorrectionComponent, m_state));
+		}
+	};
+
+	// what the VE components point at their states
+	class VisualEnvironmentState
+	{
+	public:
+		char _0x0000[0x2C];
+		ColorCorrectionState* m_colorCorrection; //0x002C
+	};
+
+	class VisualEnvironmentManager
+	{
+	public:
+		char _0x0000[0x20];
+		EastlVector<VisualEnvironmentState*> m_states; //0x0020
+		char _0x0030[0x1890];
+		bool m_dirty; //0x18C0
+
+		static VisualEnvironmentManager* GetInstance()
+		{
+			return *reinterpret_cast<VisualEnvironmentManager**>(OFF_g_visualEnvironmentManager);
+		}
+	};
+
 	struct VectorShaderParameter
 	{
 		float m_value[4]; //0x0000
@@ -135,20 +197,60 @@ namespace fb
 		Array<ZoomLevelData*> m_zoomLevels; //0x0008 [0] unzoomed
 	};
 
+	// sub_10D6D10 hands the aimer sub_10D1B30
+	struct AimingInput
+	{
+		char _0x0000[0x1C];
+		float m_lookSpeed;
+		char _0x0020[0xA0];
+	};//Size=0x00C0
+
 	class ClientSoldierAimingSimulation
 	{
 	public:
 		SoldierAimingSimulationData* m_data; //0x0000
-		char _0x0004[0xEC];
+		char _0x0004[0x2C];
+		AimingInput m_input; //0x0030
 		int m_zoomLevel; //0x00F0 updateZoom sub_10D5590: 0 unzoomed, else the weapon's zoom level (ADS, scope)
 		char _0x00F4[0xC];
 		float m_fovMultiplier; //0x0100 times the zoom level's FieldOfView in updateZoom
+		float m_fovTransitionTime; //0x0104 what updateZoom last asked the camera to take
+
+		static ClientSoldierAimingSimulation* fromInput(AimingInput* input)
+		{
+			return reinterpret_cast<ClientSoldierAimingSimulation*>(reinterpret_cast<char*>(input) - offsetof(ClientSoldierAimingSimulation, m_input));
+		}
+	};
+
+	// what updateZoom asks the camera manager for
+	struct FovRequest
+	{
+		float m_fov;
+		float m_transitionTime;
+		float m_delayTime; // SoldierAimingSimulationData::FovDelayTime
+		bool m_active;
+	};
+
+	// updateZoom requests its fov with slot 4, the camera update sub_109E490 renders getFov
+	class ClientCameraManager
+	{
+	public:
+		// the fov of the moment: mid transition while zooming, a camera's own when it has one (+0x80)
+		VFUNC(float, getFov, 3, (), (this))
+		VFUNC(void, requestFov, 4, (const FovRequest* request), (this, request))
+
+		static ClientCameraManager* GetInstance()
+		{
+			return *reinterpret_cast<ClientCameraManager**>(OFF_g_cameraManager);
+		}
 	};
 
 	// what sub_1038E90 keeps per socket
 	struct AttachmentHolder
 	{
-		char _0x0000[0xC];
+		int m_bone1p; //0x0000 index into the 1p pose bones, -1 for none
+		int m_bone3p; //0x0004
+		char _0x0008[0x4];
 		struct AttachmentRecord* m_1pBegin; //0x000C
 		AttachmentRecord* m_1pEnd; //0x0010
 		char _0x0014[0x8];
@@ -368,6 +470,18 @@ namespace fb
 		char* m_Name; //0x0008
 	};
 
+	// a profile setting's range: UISettingsComp builds its slider from these (sub_906B90)
+	class ProfileOptionDataFloat : public Asset
+	{
+	public:
+		const char* m_uniqueId; //0x000C
+		int m_category; //0x0010
+		float m_min; //0x0014
+		float m_max; //0x0018
+		float m_value; //0x001C
+		float m_step; //0x0020
+	};
+
 	class UIWidgetAsset : public Asset
 	{
 	public:
@@ -534,7 +648,8 @@ namespace fb
 	class WeaponRegularSocketObjectData : public DataContainer
 	{
 	public:
-		char _0x0008[0x8];
+		char _0x0008[0x4];
+		DataContainer* m_asset1p; //0x000C
 		DataContainer* m_zoomAsset; //0x0010 an import, resolved after its partition loads
 		char _0x0014[0xC];
 		float m_transform[16]; //0x0020 LinearTransform

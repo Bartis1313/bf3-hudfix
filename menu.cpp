@@ -44,8 +44,11 @@ namespace hudfix
             Color,
             Brightness,
             TicketPanel,
+            NeutralColors,
+            ColorGrading,
             UniformAiming,
             UniformAimingCoefficient,
+            UniformSights,
             ZoomSensitivity
         };
 
@@ -60,6 +63,7 @@ namespace hudfix
         constexpr const char* TAB_NAMES[TabCount] = { "HUD", "AIM", "TAGS", "VEHICLE" };
         constexpr const char* TAB_BAR_TABS = "HUD;AIM;TAGS;VEHICLE"; // TabBar "Tabs" property
         constexpr const char* TAB_SOURCE = "HudFixTab"; // what the tab bar's Released writes
+        constexpr const char* FIELD_OF_VIEW_SOURCE = "FieldOfView"; // the game's own slider
         constexpr const char* MAIN_TAB_BAR = "TabBar_01";
         constexpr const char* SET_VALUE_NODE = "SetValue"; // List_01.SelectorChanged's DataSetNode
 
@@ -80,6 +84,7 @@ namespace hudfix
             { "HudFixMinimap", "MINIMAP SIZE", Kind::Element, Minimap, TabHud },
             { "HudFixMinimapIcons", "MAP ICON SIZE", Kind::Element, MinimapIcons, TabHud },
             { "HudFixMinimapIconsOpacity", "MAP ICON OPACITY", Kind::Opacity, MinimapIcons, TabHud },
+            { "HudFixMinimapBackgroundOpacity", "MAP BG OPACITY", Kind::Opacity, Minimap, TabHud },
             { "HudFixSquadList", "SQUAD SIZE", Kind::Element, SquadList, TabHud },
             { "HudFixSquadListOpacity", "SQUAD OPACITY", Kind::Opacity, SquadList, TabHud },
             { "HudFixObjectives", "TICKETS SIZE", Kind::Element, Objectives, TabHud },
@@ -97,11 +102,14 @@ namespace hudfix
             { "HudFixChatOpacity", "CHAT OPACITY", Kind::Opacity, Chat, TabHud },
             { "HudFixCommoRose", "COMMO ROSE SIZE", Kind::Element, CommoRose, TabHud },
             { "HudFixCommoRoseOpacity", "COMMO ROSE OPACITY", Kind::Opacity, CommoRose, TabHud },
+            { "HudFixNeutralColors", "NO BLUE TINT", Kind::NeutralColors, -1, TabHud },
+            { "HudFixNoColorGrading", "NO COLOR GRADING", Kind::ColorGrading, -1, TabHud },
 
             { "HudFixCrosshair", "CROSSHAIR SIZE", Kind::Element, Crosshair, TabAim },
             { "HudFixCrosshairColor", "CROSSHAIR COLOR", Kind::Color, CrosshairColor, TabAim },
             { "HudFixScopeColor", "SIGHT COLOR", Kind::Color, SightColor, TabAim },
             { "HudFixScopeSize", "SCOPE SIZE", Kind::Element, Scope, TabAim },
+            { "HudFixUniformSights", "UNIFORM SIGHTS", Kind::UniformSights, -1, TabAim },
             { "HudFixSightZoom", "SIGHT ZOOM", Kind::SightZoom, -1, TabAim },
             { "HudFixUniformAiming", "UNIFORM AIMING", Kind::UniformAiming, -1, TabAim },
             { "HudFixUniformAimingCoefficient", "AIM COEFFICIENT", Kind::UniformAimingCoefficient, -1, TabAim },
@@ -146,7 +154,7 @@ namespace hudfix
         constexpr int ELEMENT_MIN = 50;
         constexpr int ELEMENT_MAX = 300;
         constexpr int ELEMENT_STEP = 10;
-        constexpr int OPACITY_MIN = 10;
+        constexpr int OPACITY_MIN = 0;
         constexpr int OPACITY_MAX = 100;
         constexpr int SCOPED_MIN = 0;
 
@@ -172,6 +180,7 @@ namespace hudfix
 
         int g_tab = TabHud;
         int g_tabKey = 0;
+        int g_fieldOfViewKey = 0;
         int g_pickedRowKey = 0;
         char g_tabSelected[8] = "0";
 
@@ -235,6 +244,7 @@ namespace hudfix
                 g_sources.names[i] = g_rows[i].source;
             }
             g_tabKey = dataKey(TAB_SOURCE);
+            g_fieldOfViewKey = dataKey(FIELD_OF_VIEW_SOURCE);
             g_sources.names[ROW_COUNT] = TAB_SOURCE;
             g_sources.count = static_cast<unsigned int>(ROW_COUNT + 1);
         }
@@ -245,7 +255,10 @@ namespace hudfix
             {
             case Kind::Auto:
             case Kind::TicketPanel:
+            case Kind::NeutralColors:
+            case Kind::ColorGrading:
             case Kind::UniformAiming:
+            case Kind::UniformSights:
                 return 2;
             case Kind::UniformAimingCoefficient:
                 return UNIFORM_AIMING_COEFFICIENT_COUNT;
@@ -264,6 +277,8 @@ namespace hudfix
             case Kind::Brightness:
                 return (VEHICLE_BRIGHTNESS_MAX - VEHICLE_BRIGHTNESS_MIN) / ELEMENT_STEP + 1;
             default:
+                if (row.element == Scope)
+                    return (SCOPE_SIZE_MAX - SCOPE_SIZE_MIN) / SCOPE_SIZE_STEP + 1;
                 return (ELEMENT_MAX - ELEMENT_MIN) / ELEMENT_STEP + 1;
             }
         }
@@ -285,6 +300,8 @@ namespace hudfix
             case Kind::UniformAimingCoefficient:
                 return UNIFORM_AIMING_COEFFICIENTS[index];
             default:
+                if (row.element == Scope)
+                    return SCOPE_SIZE_MIN + index * SCOPE_SIZE_STEP;
                 return ELEMENT_MIN + index * ELEMENT_STEP;
             }
         }
@@ -297,8 +314,14 @@ namespace hudfix
                 return settings().autoScale ? 1 : 0;
             case Kind::TicketPanel:
                 return settings().removeTicketPanel ? 1 : 0;
+            case Kind::NeutralColors:
+                return settings().neutralColors ? 1 : 0;
+            case Kind::ColorGrading:
+                return settings().noColorGrading ? 1 : 0;
             case Kind::UniformAiming:
                 return settings().uniformAiming ? 1 : 0;
+            case Kind::UniformSights:
+                return settings().uniformSights ? 1 : 0;
             case Kind::UniformAimingCoefficient:
             {
                 // the nearest listed value
@@ -325,6 +348,8 @@ namespace hudfix
             case Kind::Brightness:
                 return std::clamp((settings().vehicleBrightness - VEHICLE_BRIGHTNESS_MIN + ELEMENT_STEP / 2) / ELEMENT_STEP, 0, itemCount(row) - 1);
             default:
+                if (row.element == Scope)
+                    return std::clamp((settings().element[row.element] - SCOPE_SIZE_MIN + SCOPE_SIZE_STEP / 2) / SCOPE_SIZE_STEP, 0, itemCount(row) - 1);
                 return std::clamp((settings().element[row.element] - ELEMENT_MIN + ELEMENT_STEP / 2) / ELEMENT_STEP, 0, itemCount(row) - 1);
             }
         }
@@ -369,7 +394,8 @@ namespace hudfix
             for (int i = 0; i < count; ++i)
             {
                 char label[32], index[8];
-                if (row.kind == Kind::Auto || row.kind == Kind::TicketPanel || row.kind == Kind::UniformAiming)
+                if (row.kind == Kind::Auto || row.kind == Kind::TicketPanel || row.kind == Kind::NeutralColors || row.kind == Kind::ColorGrading || row.kind == Kind::UniformAiming
+                    || row.kind == Kind::UniformSights)
                     std::snprintf(label, sizeof(label), "%s", i ? "ID_M_OPTIONS_YES" : "ID_M_OPTIONS_NO");
                 else if (row.kind == Kind::Color)
                     std::snprintf(label, sizeof(label), "%s", i ? "CUSTOM" : "DEFAULT");
@@ -446,6 +472,14 @@ namespace hudfix
             case Kind::TicketPanel:
                 settings().removeTicketPanel = index == 1;
                 break;
+            case Kind::NeutralColors:
+                settings().neutralColors = index == 1;
+                applyVisuals();
+                break;
+            case Kind::ColorGrading:
+                settings().noColorGrading = index == 1;
+                applyVisuals();
+                break;
             case Kind::UniformAiming:
                 settings().uniformAiming = index == 1;
                 applyZoomFov();
@@ -453,6 +487,10 @@ namespace hudfix
             case Kind::UniformAimingCoefficient:
                 settings().uniformAimingCoefficient = percentOfItem(row, index);
                 applyZoomFov();
+                break;
+            case Kind::UniformSights:
+                settings().uniformSights = index == 1;
+                applyScopeSize();
                 break;
             case Kind::ZoomSensitivity:
                 settings().zoomSensitivity = percentOfItem(row, index);
@@ -512,6 +550,9 @@ namespace hudfix
                 fillRow(*row, value);
                 return true;
             }
+
+            if (key == g_fieldOfViewKey)
+                raiseFieldOfViewMax();
             return oGetDataValue(_this, key, value);
         }
 
@@ -527,7 +568,10 @@ namespace hudfix
                 applyRow(*row, value);
                 return true;
             }
-            return oSetDataValue(_this, key, value);
+            const bool handled = oSetDataValue(_this, key, value);
+            if (key == g_fieldOfViewKey)
+                refreshFieldOfView();
+            return handled;
         }
 
         void* allocate(size_t size)

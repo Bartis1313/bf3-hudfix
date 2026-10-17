@@ -41,8 +41,11 @@ namespace hudfix
         constexpr const char* UNIFORM_AIMING_KEY = "HudFixUniformAiming";
         constexpr const char* ZOOM_SENSITIVITY_KEY = "HudFixZoomSensitivity";
         constexpr const char* UNIFORM_AIMING_COEFFICIENT_KEY = "HudFixUniformAimingCoefficient";
+        constexpr const char* UNIFORM_SIGHTS_KEY = "HudFixUniformSights";
         constexpr const char* VEHICLE_BRIGHTNESS_KEY = "HudFixVehicleBrightness";
         constexpr const char* TICKET_PANEL_KEY = "HudFixRemoveTicketPanel";
+        constexpr const char* NEUTRAL_COLORS_KEY = "HudFixNeutralColors";
+        constexpr const char* COLOR_GRADING_KEY = "HudFixNoColorGrading";
         constexpr const char* ELEMENT_KEYS[ElementCount] = 
         { 
             "HudFixMinimap",
@@ -72,7 +75,7 @@ namespace hudfix
         };
         constexpr const char* OPACITY_KEYS[ElementCount] =
         {
-            nullptr, // the game's own minimap transparency option
+            "HudFixMinimapBackgroundOpacity",
             "HudFixMinimapIconsOpacity",
             "HudFixSquadListOpacity",
             "HudFixObjectivesOpacity",
@@ -239,6 +242,9 @@ namespace hudfix
             sync(UNIFORM_AIMING_COEFFICIENT_KEY, g_settings.uniformAimingCoefficient);
             g_settings.uniformAimingCoefficient = std::clamp(g_settings.uniformAimingCoefficient, UNIFORM_AIMING_COEFFICIENTS[0],
                 UNIFORM_AIMING_COEFFICIENTS[UNIFORM_AIMING_COEFFICIENT_COUNT - 1]);
+            int uniformSights = g_settings.uniformSights ? 1 : 0;
+            sync(UNIFORM_SIGHTS_KEY, uniformSights);
+            g_settings.uniformSights = uniformSights != 0;
             sync(ZOOM_SENSITIVITY_KEY, g_settings.zoomSensitivity);
             g_settings.zoomSensitivity = std::clamp(g_settings.zoomSensitivity, ZOOM_SENSITIVITY_MIN, ZOOM_SENSITIVITY_MAX);
             g_settings.sightZoom = std::clamp(g_settings.sightZoom, 0, SightZoomCount - 1);
@@ -247,6 +253,12 @@ namespace hudfix
             int removeTicketPanel = g_settings.removeTicketPanel ? 1 : 0;
             sync(TICKET_PANEL_KEY, removeTicketPanel);
             g_settings.removeTicketPanel = removeTicketPanel != 0;
+            int neutralColors = g_settings.neutralColors ? 1 : 0;
+            sync(NEUTRAL_COLORS_KEY, neutralColors);
+            g_settings.neutralColors = neutralColors != 0;
+            int noColorGrading = g_settings.noColorGrading ? 1 : 0;
+            sync(COLOR_GRADING_KEY, noColorGrading);
+            g_settings.noColorGrading = noColorGrading != 0;
 
             if (g_settings.scale <= 0) // the slider builds stored "fit" as 0
                 g_settings.scale = 100;
@@ -254,6 +266,8 @@ namespace hudfix
             for (int i = 0; i < ElementCount; ++i)
             {
                 sync(ELEMENT_KEYS[i], g_settings.element[i]);
+                if (i == Scope)
+                    g_settings.element[i] = std::clamp(g_settings.element[i], SCOPE_SIZE_MIN, SCOPE_SIZE_MAX);
                 if (OPACITY_KEYS[i])
                     sync(OPACITY_KEYS[i], g_settings.opacity[i]);
                 if (SCOPED_KEYS[i])
@@ -280,6 +294,7 @@ namespace hudfix
             applyScopeColor();
             applyScopeSize();
             applyZoomFov();
+            applyVisuals();
         }
 
         // options menu revert / restore defaults copy a whole bank over the live group
@@ -331,9 +346,12 @@ namespace hudfix
         set(group, SIGHT_ZOOM_KEY, static_cast<float>(g_settings.sightZoom));
         set(group, UNIFORM_AIMING_KEY, g_settings.uniformAiming ? 1.0f : 0.0f);
         set(group, UNIFORM_AIMING_COEFFICIENT_KEY, static_cast<float>(g_settings.uniformAimingCoefficient));
+        set(group, UNIFORM_SIGHTS_KEY, g_settings.uniformSights ? 1.0f : 0.0f);
         set(group, ZOOM_SENSITIVITY_KEY, static_cast<float>(g_settings.zoomSensitivity));
         set(group, VEHICLE_BRIGHTNESS_KEY, static_cast<float>(g_settings.vehicleBrightness));
         set(group, TICKET_PANEL_KEY, g_settings.removeTicketPanel ? 1.0f : 0.0f);
+        set(group, NEUTRAL_COLORS_KEY, g_settings.neutralColors ? 1.0f : 0.0f);
+        set(group, COLOR_GRADING_KEY, g_settings.noColorGrading ? 1.0f : 0.0f);
 
         for (int i = 0; i < ElementCount; ++i)
         {

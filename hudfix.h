@@ -60,8 +60,11 @@ namespace hudfix
         bool uniformAiming = false;
         int uniformAimingCoefficient = 133; // percent, BF4's default
         int zoomSensitivity = 100;
+        bool uniformSights = true; // every reticle same size of scale
         int vehicleBrightness = 100; // percent of the stock vehicle HUD's brightness a vehicle color gets
         bool removeTicketPanel = false; // no panel behind the tickets: on foot it ends at the minimap, the air vehicles' is hidden
+        bool neutralColors = false;
+        bool noColorGrading = false;
         int scale = 100; // percent, used when autoScale is off
         int element[ElementCount];
         int opacity[ElementCount];
@@ -116,6 +119,10 @@ namespace hudfix
     constexpr int ZOOM_SENSITIVITY_MIN = 10;
     constexpr int ZOOM_SENSITIVITY_MAX = 300;
     constexpr int ZOOM_SENSITIVITY_STEP = 5;
+
+    constexpr int SCOPE_SIZE_MIN = 50;
+    constexpr int SCOPE_SIZE_MAX = 150;
+    constexpr int SCOPE_SIZE_STEP = 2;
 
     // other rations makes no sense
     constexpr int UNIFORM_AIMING_COEFFICIENTS[] = { 0, 25, 50, 75, 100, 133, 150, 178, 200 };
@@ -197,6 +204,7 @@ namespace hudfix
     void installGameplayHooks();
     void installScopeHooks();
     void installInputHooks();
+    void installVisualHooks();
     void scanCockpitShaders();
     void holdCockpitShaders();
     std::filesystem::path documentsDir();
@@ -210,5 +218,8 @@ namespace hudfix
     void applyScopeSize();
     void updateScopeColor();
     void forgetZoomLevels(fb::InternalDatabasePartition* partition);
+    void raiseFieldOfViewMax();
+    void refreshFieldOfView();
     void applyZoomFov();
+    void applyVisuals();
 }

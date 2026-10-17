@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -39,7 +40,6 @@ namespace hudfix
             bool grow; // its render block may carry no slot for the parameter
             bool hasOriginal;
             float original[4];
-            float strength = 0.5f;
             bool checkShader = false; // a material without vectors of its own
             std::string mesh;
         };
@@ -84,10 +84,28 @@ namespace hudfix
         struct LiveRecord
         {
             std::string mesh;
+            std::string weapon; // the socket's partition
+            const fb::InternalDatabasePartition* partition = nullptr;
             float original[16]; // unscaled Transform
             float written[16]; // what was put on the record last
+            float uniform = 0.0f; // how much it's scaled to the "good" size, in here ak74
         };
         std::unordered_map<fb::AttachmentRecord*, LiveRecord> g_live;
+
+        using DrawHolderFn = char(__thiscall*)(fb::AttachmentHolder* holder, char firstPerson, char zoomed, void* pose, void* list, char flag);
+        DrawHolderFn oDrawHolder = nullptr;
+        // every weapon puts its reticle at its own depth past the sight body, so to prevent that use value that is middle of everything, will not be issue anyway
+        constexpr float EYE_RELIEF = 0.1f;
+        struct SightBaseline
+        {
+            const char* folder; // weapons/accessories/some_weapon_name...
+            float depth;
+            float fov;
+        };
+        constexpr SightBaseline BASELINES[] = { { "eotech", 0.337f, 20.0f }, { "kobra", 0.337f, 18.0f }, { "pka-s", 0.353f, 15.0f }, { "rx01", 0.329f, 17.0f } };
+        constexpr float MIN_UNIFORM = 0.25f;
+        constexpr float MAX_UNIFORM = 2.5f;
+        std::map<std::pair<const fb::InternalDatabasePartition*, std::string>, float> g_bodies;
 
         std::vector<Reticle> g_reticles;
         std::vector<Grown> g_grown;
@@ -203,14 +221,10 @@ namespace hudfix
             return false;
         }
 
-        // the palette's soft colors fully saturated, any white in them is what the bloom blows up
         std::array<float, 4> colorize(const Reticle& reticle, const Color& color)
         {
-            const float high = (std::max)({ color.r, color.g, color.b }), low = (std::min)({ color.r, color.g, color.b });
-            const float range = high > low ? high - low : 1.0f;
-            const float intensity = reticle.strength;
             const float alpha = reticle.hasOriginal && reticle.original[3] > 0.0f ? reticle.original[3] : 1.0f;
-            return { (color.r - low) / range * intensity, (color.g - low) / range * intensity, (color.b - low) / range * intensity, alpha };
+            return { color.r, color.g, color.b, alpha };
         }
 
         float* blockVector(fb::ShaderParameterBlock* block, unsigned int handle)
@@ -509,6 +523,28 @@ namespace hudfix
             scaleTransform(proxy.mesh, proxy.original, factor, proxy.transform);
         }
 
+        bool fromProxy(const fb::AttachmentRecord* record, LiveRecord& entry)
+        {
+            const char* name = recordMesh(record);
+            if (!name)
+                return false;
+            const std::string mesh = lower(name);
+            for (const ReticleProxy& proxy : g_proxies)
+            {
+                // spawned before the socket was scaled, it still has the original
+                if (proxy.mesh != mesh || !(sameTransform(record->m_transform, proxy.transform) || sameTransform(record->m_transform, proxy.original)))
+                    continue;
+
+                entry.mesh = mesh;
+                entry.weapon = lower(proxy.partition->m_name);
+                entry.partition = proxy.partition;
+                std::copy(proxy.original, proxy.original + 16, entry.original);
+                std::copy(record->m_transform, record->m_transform + 16, entry.written);
+                return true;
+            }
+            return false;
+        }
+
         // the live weapons' sight records, before the sockets change
         void trackLiveRecords()
         {
@@ -523,22 +559,106 @@ namespace hudfix
                     live.insert(*known);
                     continue;
                 }
-                const char* name = recordMesh(record);
-                if (!name)
-                    continue;
-                const std::string mesh = lower(name);
-                for (const ReticleProxy& proxy : g_proxies)
-                {
-                    if (proxy.mesh != mesh || !sameTransform(record->m_transform, proxy.transform))
-                        continue;
-                    LiveRecord& entry = live[record];
-                    entry.mesh = mesh;
-                    std::copy(proxy.original, proxy.original + 16, entry.original);
-                    std::copy(proxy.transform, proxy.transform + 16, entry.written);
-                    break;
-                }
+                LiveRecord entry;
+                if (fromProxy(record, entry))
+                    live[record] = entry;
             }
             g_live.swap(live);
+        }
+
+        // the widest side of a reticle quad
+        float meshExtent(const std::string& mesh)
+        {
+            const auto bounds = g_bounds.find(mesh);
+            if (bounds == g_bounds.end())
+                return 0.0f;
+            return (std::max)(bounds->second.high[0] - bounds->second.low[0], bounds->second.high[1] - bounds->second.low[1]);
+        }
+
+        // "weapons/accessories/eotech/eotech_reticule_1p_mesh" -> "eotech"
+        std::string accessoryFolder(const std::string& mesh)
+        {
+            constexpr std::string_view ACCESSORIES = "weapons/accessories/";
+            if (!mesh.starts_with(ACCESSORIES))
+                return { };
+            const size_t end = mesh.find('/', ACCESSORIES.size());
+            return end == std::string::npos ? std::string() : mesh.substr(ACCESSORIES.size(), end - ACCESSORIES.size());
+        }
+
+        // the weapon a sight holder belongs to
+        fb::ClientSoldierWeapon* holderWeapon(const fb::AttachmentHolder* holder)
+        {
+            fb::ClientPlayer* local = fb::ClientPlayer::GetLocal();
+            fb::ClientSoldierEntity* soldier = local ? local->getSoldier() : nullptr;
+            fb::ClientSoldierWeaponsComponent* weapons = soldier ? soldier->m_weapons : nullptr;
+            for (fb::ClientSoldierWeapon** w = weapons ? weapons->m_weaponsBegin : nullptr; w && w != weapons->m_weaponsEnd; ++w)
+            {
+                if (*w && reinterpret_cast<uintptr_t>((*w)->m_vtable) == OFF_ClientSoldierWeapon_vtable && holder >= (*w)->m_holdersBegin && holder < (*w)->m_holdersEnd)
+                    return *w;
+            }
+            return nullptr;
+        }
+
+        // how much the reticle is scaled to look as big as the same sight's on the ak74
+        float uniformFactor(const LiveRecord& entry, fb::ClientSoldierWeapon* weapon)
+        {
+            const std::string folder = accessoryFolder(entry.mesh);
+            const auto baseline = std::find_if(std::begin(BASELINES), std::end(BASELINES), [&folder](const SightBaseline& b) { return folder == b.folder; });
+            if (baseline == std::end(BASELINES))
+                return 1.0f; // not 1x
+            const auto body = g_bodies.find({ entry.partition, folder });
+            if (body == g_bodies.end())
+                return 1.0f;
+
+            // the small twin is measured against the full size one
+            const bool twin = entry.mesh.find(std::string(RETICLE) + SMALL) != std::string::npos;
+            const float own = meshExtent(entry.mesh), full = twin ? meshExtent(otherSize(entry.mesh)) : own;
+            const float fov = weapon ? reinterpret_cast<float(__thiscall*)(fb::ClientSoldierWeapon*, char)>(OFF_ClientSoldierWeapon_renderFov)(weapon, 1) : 0.0f;
+            if (own <= 0.0f || full <= 0.0f || !(fov > 0.0f && fov < 180.0f))
+                return 0.0f;
+
+            const float depth = (std::max)(entry.original[14] - body->second, 0.0f);
+            constexpr float HALF_DEGREE = 3.14159265f / 360.0f;
+            const float depthRatio = (depth + EYE_RELIEF) / (baseline->depth + EYE_RELIEF);
+            const float twinRatio = full / own;
+            const float fovRatio = std::tan(fov * HALF_DEGREE) / std::tan(baseline->fov * HALF_DEGREE);
+            const float factor = std::clamp(depthRatio * twinRatio * fovRatio, MIN_UNIFORM, MAX_UNIFORM);
+            log("uniform sights: {} {} depth {:.3f} gun fov {:.1f}: {:.0f}% (depth {:.2f} x small twin {:.2f} x fov {:.2f})", entry.weapon, entry.mesh, depth, fov,
+                factor * 100.0f, depthRatio, twinRatio, fovRatio);
+            return factor;
+        }
+
+        // the zoomed reticles of the local soldier's weapon
+        void uniformReticles(fb::AttachmentHolder* holder)
+        {
+            if (holder->m_1pZoomBegin == holder->m_1pZoomEnd)
+                return;
+
+            std::lock_guard lock(g_lock);
+            const float scale = elementFactor(Scope);
+            for (fb::AttachmentRecord* record = holder->m_1pZoomBegin; record && record != holder->m_1pZoomEnd; ++record)
+            {
+                auto known = g_live.find(record);
+                if (known == g_live.end() || !sameTransform(record->m_transform, known->second.written))
+                {
+                    LiveRecord entry;
+                    if (!fromProxy(record, entry))
+                        continue;
+                    known = g_live.insert_or_assign(record, entry).first;
+                }
+                LiveRecord& entry = known->second;
+                if (entry.uniform <= 0.0f)
+                    entry.uniform = uniformFactor(entry, holderWeapon(holder));
+                scaleTransform(entry.mesh, entry.original, scale * (entry.uniform > 0.0f ? entry.uniform : 1.0f), entry.written);
+                std::copy(entry.written, entry.written + 16, record->m_transform);
+            }
+        }
+
+        char __fastcall hkDrawHolder(fb::AttachmentHolder* _this, void*, char firstPerson, char zoomed, void* pose, void* list, char flag)
+        {
+            if (firstPerson && zoomed && settings().uniformSights)
+                uniformReticles(_this);
+            return oDrawHolder(_this, firstPerson, zoomed, pose, list, flag);
         }
 
         void scaleLiveRecords(float factor)
@@ -578,9 +698,8 @@ namespace hudfix
         }
 
         // an import is resolved by now, but stays a data pointer of unknown kind
-        const char* meshName(const fb::WeaponRegularSocketObjectData* object)
+        const char* meshName(fb::DataContainer* mesh)
         {
-            fb::DataContainer* mesh = object->m_zoomAsset;
             if (!mesh || (reinterpret_cast<uintptr_t>(mesh) & 3))
                 return nullptr;
 
@@ -597,7 +716,16 @@ namespace hudfix
         {
             std::erase_if(g_candidates, [](const ProxyCandidate& candidate)
             {
-                const char* mesh = meshName(candidate.object);
+                // a sight body, its reticle's depth is counted from it
+                if (const char* first = meshName(candidate.object->m_asset1p))
+                {
+                    const std::string name = lower(first);
+                    const std::string folder = accessoryFolder(name);
+                    if (!folder.empty() && name.find("reticule") == std::string::npos)
+                        g_bodies.emplace(std::pair{ candidate.partition, folder }, candidate.object->m_transform[14]);
+                }
+
+                const char* mesh = meshName(candidate.object->m_zoomAsset);
                 if (!mesh)
                     return false; // not resolved yet
 
@@ -619,6 +747,7 @@ namespace hudfix
                 std::lock_guard lock(g_lock);
                 std::erase_if(g_proxies, [_this](const ReticleProxy& proxy) { return proxy.partition == _this; });
                 std::erase_if(g_candidates, [_this](const ProxyCandidate& candidate) { return candidate.partition == _this; });
+                std::erase_if(g_bodies, [_this](const auto& body) { return body.first.first == _this; });
             }
             forgetZoomLevels(_this);
             oReleaseInstances(_this, unused);
@@ -758,7 +887,8 @@ namespace hudfix
             unbounded += !g_bounds.count(proxy.mesh);
         }
         scaleLiveRecords(factor);
-        log("scope size {:.0f}% on {} reticle sockets, {} without bounds", factor * 100.0f, g_proxies.size(), unbounded);
+        log("scope size {:.0f}% on {} reticle sockets, {} without bounds, uniform sights {}", factor * 100.0f, g_proxies.size(), unbounded,
+            settings().uniformSights);
     }
 
     void installScopeHooks()
@@ -766,5 +896,6 @@ namespace hudfix
         hook(OFF_ShaderParameterBlock_setVector, hkSetVector, &oSetVector);
         hook(OFF_InternalDatabasePartition_releaseInstances, hkReleaseInstances, &oReleaseInstances);
         hook(OFF_MeshSet_preRegistration, hkPreRegistration, &oPreRegistration);
+        hook(OFF_AttachmentHolder_draw, hkDrawHolder, &oDrawHolder);
     }
 }

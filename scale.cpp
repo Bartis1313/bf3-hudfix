@@ -20,6 +20,7 @@ namespace hudfix
         using DrawPassFn = void(__thiscall*)(void* comp, float dt);
         using MinimapScaleFn = void(__thiscall*)(fb::UIMinimap* minimap);
         using MinimapRenderFn = int(__thiscall*)(fb::UIMinimap* minimap, const void* transform, int a3, int a4);
+        using MinimapSetLayerFn = void(__thiscall*)(fb::UIMinimap* minimap, void* state, const void* params, const float* color);
         using DrawFromAtlasFn = fb::Vec2*(__thiscall*)(void* hud, fb::Vec2* outSize, const fb::UIHudIconDrawParams* params, float time, float pad, float rotation);
         using DrawTextFn = fb::GRectF*(__thiscall*)(fb::UIHud* hud, fb::GRectF* out, const fb::Vec2* pos, const char* text, float size, float glow, int halign, int valign, char snap);
         using UpdateTextLineFn = int(__thiscall*)(void* hud, fb::UIHudTextLine* line, const fb::Vec2* pos);
@@ -37,6 +38,7 @@ namespace hudfix
         DrawPassFn oKillfeed = nullptr;
         MinimapScaleFn oMinimapScale = nullptr;
         MinimapRenderFn oMinimapRender = nullptr;
+        MinimapSetLayerFn oMinimapSetLayer = nullptr;
         DrawFromAtlasFn oDrawFromAtlas = nullptr;
         DrawTextFn oDrawText = nullptr;
         UpdateTextLineFn oUpdateTextLine = nullptr;
@@ -349,6 +351,12 @@ namespace hudfix
             return oMinimapRender(_this, transform, a3, a4);
         }
 
+        void __fastcall hkMinimapSetLayer(fb::UIMinimap* _this, void*, void* state, const void* params, const float* color)
+        {
+            const float faded[4] = { color[0], color[1], color[2], color[3] * _this->m_textureOpacity };
+            oMinimapSetLayer(_this, state, params, faded);
+        }
+
         // callers lay out in 720p units around the anchor
         // positions and sizes are magnified, the returned size is not
         fb::Vec2* drawFromAtlas(void* _this, fb::Vec2* outSize, const fb::UIHudIconDrawParams* params, float time, float pad, float rotation)
@@ -437,6 +445,7 @@ namespace hudfix
         hook(OFF_UIKillfeed_draw, hkKillfeed, &oKillfeed);
         hook(OFF_UIMinimap_updateScale, hkMinimapScale, &oMinimapScale);
         hook(OFF_UIMinimap_render, hkMinimapRender, &oMinimapRender);
+        hook(OFF_UIMinimap_setLayer, hkMinimapSetLayer, &oMinimapSetLayer);
         hook(OFF_UIHud_drawFromAtlas, hkDrawFromAtlas, &oDrawFromAtlas);
         hook(OFF_UIHud_drawText, hkDrawText, &oDrawText);
         hook(OFF_UIHud_updateTextLine, hkUpdateTextLine, &oUpdateTextLine);

@@ -90,6 +90,7 @@
     <ClCompile Include="scale.cpp" />
     <ClCompile Include="scope.cpp" />
     <ClCompile Include="settings.cpp" />
+    <ClCompile Include="visuals.cpp" />
     <ClCompile Include="widgets.cpp" />
   </ItemGroup>
   <ItemGroup>

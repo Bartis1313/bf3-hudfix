@@ -1891,7 +1891,6 @@ namespace hudfix
                     // the chase crosshair's size thickens its lines instead (thickenChaseCrosshair)
                     context.k = group.element == ChaseCrosshair ? 1.0 : elementFactor(group.element);
                     context.layout = group.element == ChaseCrosshair ? 1.0 : elementFactor(group.layout);
-                    context.alpha = elementOpacity(group.element);
                     context.color = widgetColor(group.element);
                     if (!context.color && group.element == VehicleCrosshair) // the HUD's color when it has none of its own
                         context.color = widgetColor(VehicleHud);
@@ -1907,6 +1906,8 @@ namespace hudfix
                     context.minimapEdge = !_stricmp(widget->m_WidgetAsset->m_Name, "UI/Assets/Minimap") || !_stricmp(widget->m_WidgetAsset->m_Name, "UI/Assets/Compass");
                     context.followsMinimap = group.layout == Minimap && group.element != Minimap;
                     context.minimapBackground = !_stricmp(widget->m_WidgetAsset->m_Name, "UI/Assets/HudBackgroundWidget");
+                    // the minimap's opacity is its background panel's, the map itself fades with the game's own option
+                    context.alpha = group.element != Minimap || context.minimapBackground ? elementOpacity(group.element) : 1.0;
                     // without a ticket panel the panel is cut at the minimap's outline at any size
                     const bool ticketPanel = settings().removeTicketPanel && (context.minimapEdge || context.minimapBackground);
                     if (context.k == 1.0 && context.layout == 1.0 && context.alpha == 1.0 && !context.color && !ticketPanel)

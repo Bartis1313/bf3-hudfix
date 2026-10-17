@@ -12,6 +12,7 @@
 #define OFF_UIKillfeed_draw 0x0092D630 // thiscall (dt): right-aligned at floor(0.95 * w) + x, layout from y = 100
 #define OFF_UIMinimap_updateScale 0x009366E0 // thiscall (): m_resolutionScale = min(1, w/1280, h/720)
 #define OFF_UIMinimap_render 0x0094AB90 // thiscall (const Mat4*, a3, a4): icons (drawFromAtlas) and labels (drawText sub_940E00) into the minimap texture
+#define OFF_UIMinimap_setLayer 0x00936410 // thiscall (render state, const UIMinimapDistanceFieldParams*, const float color[4]) retn 0Ch: a map layer's params and color, used by the base map (sub_9433E0) and vegetation (sub_9436B0) passes; the detail texture pass sub_9432C0 sets its own color
 #define OFF_UIHud_drawFromAtlas 0x0077ACB0 // thiscall (Vec2* outSize, UIHudIconDrawParams*, time, pad, rotation)
 #define OFF_UIHud_drawText 0x007849B0 // thiscall (GRectF* out, Vec2* pos, text, size, glow, halign, valign, snap): out = local text rect at the base size
 #define OFF_UIHud_updateTextLine 0x0077C260 // thiscall (char* line, const Vec2* pos): drawText's cache hit (lines match by hash, text rgb, glow rgb), sets the line's GFxDrawText (+0x58) colour, matrix and glow, then displays it; the text alpha only reaches the glow
@@ -53,6 +54,7 @@
 #define OFF_g_profileOptions 0x02384D74 // ProfileOptions*, the profile options (PROF_SAVE_profile / PROF_SAVE_body)
 #define OFF_SettingsGroup_setFloat 0x00FBB4D0 // thiscall (name, float): inserts unknown names (name copied)
 #define OFF_SettingsGroup_getFloat 0x00FB8B40 // thiscall (name, float fallback) -> float in st0
+#define OFF_SettingsGroup_findOption 0x00FB8C20 // thiscall (name) retn 4 -> its ProfileOptionData (profile/*), null if none; UISettingsComp sliders read the range from it
 #define OFF_ProfileOptions_groupChanged 0x00FAFE50 // thiscall (group): what UISettingsComp::setDataValue calls to save a group
 #define OFF_ProfileOptions_loadProfile 0x00FBB950 // thiscall (data, size, text, textSize): merges the saved profile into the live groups (+0x10), only caller is the load-done message in onMessage sub_FBF370
 #define OFF_ProfileOptions_resetProfile 0x00FBD7A0 // thiscall (): clears all 4 banks of 9 groups, refills them from the settings asset; ctor sub_FBEC40 and profile resets
@@ -425,6 +427,8 @@ namespace fb
 	public:
 		char _0x0000[0x380];
 		float m_resolutionScale; //0x0380 icon and label scale
+		char _0x0384[0x38];
+		float m_textureOpacity; //0x03BC MinimapTextureOpacity, read every update (sub_9446C0)
 	};
 
 	// message expire is -1 always
