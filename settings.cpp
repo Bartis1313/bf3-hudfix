@@ -46,6 +46,7 @@ namespace hudfix
         constexpr const char* TICKET_PANEL_KEY = "HudFixRemoveTicketPanel";
         constexpr const char* NEUTRAL_COLORS_KEY = "HudFixNeutralColors";
         constexpr const char* COLOR_GRADING_KEY = "HudFixNoColorGrading";
+        constexpr const char* SUN_FLARE_KEY = "HudFixNoSunFlare";
         constexpr const char* ELEMENT_KEYS[ElementCount] = 
         { 
             "HudFixMinimap",
@@ -175,6 +176,9 @@ namespace hudfix
             { "UI/Assets/SquadList", { SquadList, Minimap } },
             { "UI/Assets/TicketCounter", { Objectives, Minimap } },
             { "UI/Assets/ObjectiveBar", { Objectives, Minimap } },
+            // capture the flag's (UI/XP5/Flow/Screen/HudCTFScreen) in place of the two above
+            { "UI/Assets/FlagCounter", { Objectives, Minimap } },
+            { "UI/Assets/FlagProgress", { Objectives, Minimap } },
             { "UI/Assets/Crosshair", { Crosshair, Crosshair } },
             { "UI/Assets/Hitindicator", { HitMarkers, HitMarkers } },
             { "UI/Assets/Ammo", { AmmoHealth, AmmoHealth } },
@@ -259,6 +263,9 @@ namespace hudfix
             int noColorGrading = g_settings.noColorGrading ? 1 : 0;
             sync(COLOR_GRADING_KEY, noColorGrading);
             g_settings.noColorGrading = noColorGrading != 0;
+            int noSunFlare = g_settings.noSunFlare ? 1 : 0;
+            sync(SUN_FLARE_KEY, noSunFlare);
+            g_settings.noSunFlare = noSunFlare != 0;
 
             if (g_settings.scale <= 0) // the slider builds stored "fit" as 0
                 g_settings.scale = 100;
@@ -352,6 +359,7 @@ namespace hudfix
         set(group, TICKET_PANEL_KEY, g_settings.removeTicketPanel ? 1.0f : 0.0f);
         set(group, NEUTRAL_COLORS_KEY, g_settings.neutralColors ? 1.0f : 0.0f);
         set(group, COLOR_GRADING_KEY, g_settings.noColorGrading ? 1.0f : 0.0f);
+        set(group, SUN_FLARE_KEY, g_settings.noSunFlare ? 1.0f : 0.0f);
 
         for (int i = 0; i < ElementCount; ++i)
         {

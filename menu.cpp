@@ -46,6 +46,7 @@ namespace hudfix
             TicketPanel,
             NeutralColors,
             ColorGrading,
+            SunFlare,
             UniformAiming,
             UniformAimingCoefficient,
             UniformSights,
@@ -104,6 +105,7 @@ namespace hudfix
             { "HudFixCommoRoseOpacity", "COMMO ROSE OPACITY", Kind::Opacity, CommoRose, TabHud },
             { "HudFixNeutralColors", "NO BLUE TINT", Kind::NeutralColors, -1, TabHud },
             { "HudFixNoColorGrading", "NO COLOR GRADING", Kind::ColorGrading, -1, TabHud },
+            { "HudFixNoSunFlare", "NO SUN FLARE", Kind::SunFlare, -1, TabHud },
 
             { "HudFixCrosshair", "CROSSHAIR SIZE", Kind::Element, Crosshair, TabAim },
             { "HudFixCrosshairColor", "CROSSHAIR COLOR", Kind::Color, CrosshairColor, TabAim },
@@ -150,7 +152,7 @@ namespace hudfix
         };
         constexpr size_t ROW_COUNT = std::size(g_rows);
 
-        constexpr int SCALE_MIN = 100;
+        constexpr int SCALE_MIN = 50;
         constexpr int ELEMENT_MIN = 50;
         constexpr int ELEMENT_MAX = 300;
         constexpr int ELEMENT_STEP = 10;
@@ -257,6 +259,7 @@ namespace hudfix
             case Kind::TicketPanel:
             case Kind::NeutralColors:
             case Kind::ColorGrading:
+            case Kind::SunFlare:
             case Kind::UniformAiming:
             case Kind::UniformSights:
                 return 2;
@@ -267,7 +270,10 @@ namespace hudfix
             case Kind::SightZoom:
                 return SightZoomCount;
             case Kind::Scale:
-                return (std::max)(static_cast<int>(std::floor(autoScale() * 100.0f + 1e-3f)) - SCALE_MIN, 0) / ELEMENT_STEP + 1;
+            {
+                const int top = settings().autoScale ? 100 : static_cast<int>(autoScale() * 100.0f + 1e-3f);
+                return (top - SCALE_MIN) / ELEMENT_STEP + 1;
+            }
             case Kind::Opacity:
                 return (OPACITY_MAX - OPACITY_MIN) / ELEMENT_STEP + 1;
             case Kind::Scoped:
@@ -318,6 +324,8 @@ namespace hudfix
                 return settings().neutralColors ? 1 : 0;
             case Kind::ColorGrading:
                 return settings().noColorGrading ? 1 : 0;
+            case Kind::SunFlare:
+                return settings().noSunFlare ? 1 : 0;
             case Kind::UniformAiming:
                 return settings().uniformAiming ? 1 : 0;
             case Kind::UniformSights:
@@ -394,7 +402,7 @@ namespace hudfix
             for (int i = 0; i < count; ++i)
             {
                 char label[32], index[8];
-                if (row.kind == Kind::Auto || row.kind == Kind::TicketPanel || row.kind == Kind::NeutralColors || row.kind == Kind::ColorGrading || row.kind == Kind::UniformAiming
+                if (row.kind == Kind::Auto || row.kind == Kind::TicketPanel || row.kind == Kind::NeutralColors || row.kind == Kind::ColorGrading || row.kind == Kind::SunFlare || row.kind == Kind::UniformAiming
                     || row.kind == Kind::UniformSights)
                     std::snprintf(label, sizeof(label), "%s", i ? "ID_M_OPTIONS_YES" : "ID_M_OPTIONS_NO");
                 else if (row.kind == Kind::Color)
@@ -468,6 +476,11 @@ namespace hudfix
             {
             case Kind::Auto:
                 settings().autoScale = index == 1;
+                for (const Row& r : g_rows)
+                {
+                    if (r.kind == Kind::Scale)
+                        g_pickedRowKey = r.key;
+                }
                 break;
             case Kind::TicketPanel:
                 settings().removeTicketPanel = index == 1;
@@ -478,6 +491,10 @@ namespace hudfix
                 break;
             case Kind::ColorGrading:
                 settings().noColorGrading = index == 1;
+                applyVisuals();
+                break;
+            case Kind::SunFlare:
+                settings().noSunFlare = index == 1;
                 applyVisuals();
                 break;
             case Kind::UniformAiming:

@@ -10,6 +10,8 @@
 #define OFF_VisualEnvironmentManager_update 0x01797FD0 // thiscall (const void* 0x480 bytes) retn 4: only when m_dirty (cleared after) resets +0xA10 and lerps every state into it
 #define OFF_ColorCorrection_refresh 0x01F21E10 // thiscall (ColorCorrectionState*) retn 4, this = the component's m_bindings: rereads the state from the data's fields
 #define OFF_vt_ColorCorrectionComponent 0x0213AB98 // ctor sub_F7FCF0 sets VisualEnvironmentState::m_colorCorrection (entity +0x5C) to its state
+#define OFF_SunFlare_refresh 0x020037B0 // thiscall (SunFlareState*) retn 4, this = the component's m_bindings, same for the sun flare
+#define OFF_vt_SunFlareComponent 0x0213B168 // ctor sub_F801F0 sets VisualEnvironmentState::m_sunFlare (entity +0x6C) to its state
 #define OFF_InternalDatabasePartition_onPartitionLoaded 0x004D5790
 #define OFF_InternalDatabasePartition_releaseInstances 0x004E4480 // thiscall (int unused) retn 4, vtable 0x20730E0 slot 1: releases every instance (+0x3C..+0x40) as the partition unloads
 #define OFF_g_shaderSystem 0x02356C90 // IShaderSystem* (DxShaderSystem): ShaderDatabase* vector at +0xC..+0x10 (addDatabase sub_6A5070, vtable 0x20981A8 slot 17); getPath slot 1, getSettings slot 3
@@ -140,12 +142,48 @@ namespace fb
 		}
 	};
 
+	struct SunFlareState
+	{
+		char _0x0000[0x1B0];
+		bool m_element5Enable; //0x01B0
+		bool m_element3Enable; //0x01B1
+		bool m_element2Enable; //0x01B2
+		bool m_element1Enable; //0x01B3
+		bool m_debugDrawOccluder; //0x01B4
+		bool m_enable; //0x01B5 the renderer ignores it
+		bool m_element4Enable; //0x01B6
+	};//Size=0x01B7
+
+	class SunFlareComponent
+	{
+	public:
+		void* m_vtable; //0x0000 OFF_vt_SunFlareComponent
+		char _0x0004[0xC];
+		SunFlareState m_state; //0x0010
+		char _0x01C7[0x9];
+		char m_bindings[0x4]; //0x01D0
+
+		bool isValid() const { return m_vtable == reinterpret_cast<void*>(OFF_vt_SunFlareComponent); }
+
+		void refresh()
+		{
+			reinterpret_cast<void(__thiscall*)(void*, SunFlareState*)>(OFF_SunFlare_refresh)(m_bindings, &m_state);
+		}
+
+		static SunFlareComponent* fromState(SunFlareState* state)
+		{
+			return reinterpret_cast<SunFlareComponent*>(reinterpret_cast<char*>(state) - offsetof(SunFlareComponent, m_state));
+		}
+	};
+
 	// what the VE components point at their states
 	class VisualEnvironmentState
 	{
 	public:
 		char _0x0000[0x2C];
 		ColorCorrectionState* m_colorCorrection; //0x002C
+		char _0x0030[0xC];
+		SunFlareState* m_sunFlare; //0x003C
 	};
 
 	class VisualEnvironmentManager

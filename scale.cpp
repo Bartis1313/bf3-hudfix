@@ -82,10 +82,13 @@ namespace hudfix
 
         float desiredScale()
         {
+            const fb::ScreenViewport* vp = viewport();
+            if (!vp || vp->m_width < SCLAEFORM_WIDTH || vp->m_height < SCLAEFORM_HEIGHT)
+                return 1.0f; // the game shrinks it itself below 720p
+
             const float full = autoScale();
-            if (full <= 1.0f)
-                return 1.0f;
-            return settings().autoScale ? full : std::clamp(settings().scale / 100.0f, 1.0f, full);
+            const float base = settings().autoScale ? full : 1.0f;
+            return (std::min)(base * settings().scale / 100.0f, full);
         }
 
         bool anchored()
@@ -201,12 +204,12 @@ namespace hudfix
             return oRenderJob(system, dt);
         }
 
-        // GViewport::m_scale = 1/s: the stage becomes (w/s, h/s), drawn s times larger
+        // GViewport::m_scale = 1/s: the stage becomes (w/s, h/s), drawn s times larger (smaller below 1)
         void __fastcall hkOnViewResized(fb::UIMovieInstance* _this, void*, unsigned int x, unsigned int y, unsigned int w, unsigned int h)
         {
             const float scale = g_scale;
             const fb::ScreenViewport* vp = viewport();
-            if (scale <= 1.0f || !vp || w < SCLAEFORM_WIDTH || h < SCLAEFORM_HEIGHT)
+            if (scale == 1.0f || !vp || w < SCLAEFORM_WIDTH || h < SCLAEFORM_HEIGHT)
             {
                 oOnViewResized(_this, x, y, w, h);
                 return;
@@ -241,7 +244,7 @@ namespace hudfix
         bool __fastcall hkUpdatePosition(void* _this, void*, float dt, fb::Vec2* pos, bool toMovie)
         {
             const bool animating = oUpdatePosition(_this, dt, pos, toMovie);
-            if (toMovie && g_scale > 1.0f)
+            if (toMovie && g_scale != 1.0f)
                 *pos = *pos / g_scale;
             return animating;
         }
@@ -340,7 +343,7 @@ namespace hudfix
         void __fastcall hkMinimapScale(fb::UIMinimap* _this, void*)
         {
             oMinimapScale(_this);
-            const float base = g_scale > 1.0f ? g_scale : _this->m_resolutionScale;
+            const float base = g_scale != 1.0f ? g_scale : _this->m_resolutionScale;
             _this->m_resolutionScale = base * elementFactor(MinimapIcons);
         }
 

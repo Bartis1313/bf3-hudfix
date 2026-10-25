@@ -65,7 +65,8 @@ namespace hudfix
         bool removeTicketPanel = false; // no panel behind the tickets: on foot it ends at the minimap, the air vehicles' is hidden
         bool neutralColors = false;
         bool noColorGrading = false;
-        int scale = 100; // percent, used when autoScale is off
+        bool noSunFlare = false;
+        int scale = 100;
         int element[ElementCount];
         int opacity[ElementCount];
         int scoped[ElementCount]; // percent of the opacity while the local soldier is zoomed
